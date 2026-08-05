@@ -1,4 +1,4 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "Player.h"
 #include <algorithm>
 #include <Effects.h>
@@ -9,21 +9,21 @@ using namespace DirectX::SimpleMath;
 void Player::SetModelFromData(Microsoft::WRL::ComPtr<ID3D11Device> device,
                               Microsoft::WRL::ComPtr<ID3D11DeviceContext> context, const std::string& modelPath)
 {
-    // 一度既存のモデル・プリミティブをリセット
+    
     m_model = nullptr;
     m_primitive = nullptr;
 
-    // パスが指定されていれば CMO ロードを試みる
+    
     if (!modelPath.empty() && modelPath != "Primitive_Cube")
     {
         try
         {
-            // エフェクトファクトリの生成とテクスチャ検索ディレクトリの設定
+         
             EffectFactory fx(device.Get());
             fx.SetDirectory(L"Resources/Models");
 
             std::string fullPathStr = modelPath;
-            // 相対パス補正（"Resources/Models/" がついていない場合のフォールバック）
+            
             if (fullPathStr.find("Resources/Models/") == std::string::npos)
             {
                 fullPathStr = "Resources/Models/" + fullPathStr;
@@ -38,7 +38,7 @@ void Player::SetModelFromData(Microsoft::WRL::ComPtr<ID3D11Device> device,
         }
     }
 
-    // ロード失敗または Primitive_Cube 指定の場合、球体/キューブプリミティブを作成
+   
     if (m_model == nullptr)
     {
         if (modelPath == "Primitive_Cube")
@@ -47,7 +47,7 @@ void Player::SetModelFromData(Microsoft::WRL::ComPtr<ID3D11Device> device,
         }
         else
         {
-            // デフォルトバックアップ（球体）
+           
             m_primitive = GeometricPrimitive::CreateSphere(context.Get(), 1.0f);
         }
     }
@@ -60,13 +60,12 @@ bool Player::ResolveAABBCollision(const Vector3& objPos, const Vector3& objScale
     Vector3 minBox = objPos - (objScale * 0.5f);
     Vector3 maxBox = objPos + (objScale * 0.5f);
 
-    // Y軸（高さ）の判定をスキップするかチェック
+   
     if (playerPos.y + 1.0f < minBox.y || playerPos.y - 0.5f > maxBox.y)
     {
         return false;
     }
 
-    // 最も近い AABB 上の点
     float closestX = std::max(minBox.x, std::min(playerPos.x, maxBox.x));
     float closestZ = std::max(minBox.z, std::min(playerPos.z, maxBox.z));
 
@@ -86,7 +85,7 @@ bool Player::ResolveAABBCollision(const Vector3& objPos, const Vector3& objScale
         float overlap = playerRadius - distance;
         diff /= distance;
 
-        // 押し戻し
+       
         playerPos.x += diff.x * overlap;
         playerPos.z += diff.z * overlap;
         return true;
@@ -105,9 +104,9 @@ void Player::Update(float elapsedTime, const Keyboard::State& keyState, const st
     if (keyState.IsKeyDown(Keyboard::S))
         moveDir.z -= 1.0f;
     if (keyState.IsKeyDown(Keyboard::A))
-        moveDir.x -= 1.0f;
-    if (keyState.IsKeyDown(Keyboard::D))
         moveDir.x += 1.0f;
+    if (keyState.IsKeyDown(Keyboard::D))
+        moveDir.x -= 1.0f;
 
     if (moveDir.LengthSquared() > 0.0f)
     {
@@ -117,20 +116,33 @@ void Player::Update(float elapsedTime, const Keyboard::State& keyState, const st
         m_rotation.y = m_targetAngle;
 
         Vector3 nextPos = m_position + moveDir * m_moveSpeed * elapsedTime;
-        float playerRadius = 0.5f * m_scale.x;
 
-        // 軸分離による押し出し判定（X軸）
+       
+        float playerRadius = 0.35f * m_scale.x;
+
+       
         Vector3 posX = Vector3(nextPos.x, m_position.y, m_position.z);
         for (const auto& obj : objects)
         {
-            // Wall タグ以外の衝突をスキップする場合はここでチェック
+          
+            if (obj.tag == "Door" && obj.isOpen)
+            {
+                continue;
+            }
+
             ResolveAABBCollision(obj.position, obj.scale, posX, playerRadius);
         }
 
-        // 軸分離による押し出し判定（Z軸）
+       
         Vector3 posXZ = Vector3(posX.x, m_position.y, nextPos.z);
         for (const auto& obj : objects)
         {
+        
+            if (obj.tag == "Door" && obj.isOpen)
+            {
+                continue;
+            }
+
             ResolveAABBCollision(obj.position, obj.scale, posXZ, playerRadius);
         }
 

@@ -21,6 +21,9 @@ void EditorScene::OnEnter(GameContext& gameContext)
     // グリッド床の生成
     m_gridFloor = std::make_unique<Imase::GridFloor>(device, context, &gameContext.commonStates);
 
+    // コリジョン描画用レンダラーの初期化
+    m_collisionRenderer = std::make_unique<Imase::CollisionRenderer>(device, context, true, true);
+
     m_projection = Matrix::CreatePerspectiveFieldOfView(
         XMConvertToRadians(45.0f), static_cast<float>(rect.right) / static_cast<float>(rect.bottom), 0.1f, 1000.0f);
 
@@ -41,11 +44,11 @@ void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
         m_view = m_debugCamera->GetCameraMatrix();
     }
 
-    // 2. プレイヤーの更新（入力取得と壁衝突判定を内部で行う）
+    // 2. プレイヤーの更新
     auto keyboardState = Keyboard::Get().GetState();
     m_player.Update(elapsedTime, keyboardState, m_placedObjects);
 
-    // --- 画面クリックによるオブジェクト直接選択（レイキャスト） ---
+   
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.WantCaptureMouse &&
         m_creationState == CubeCreationState::None)
     {
@@ -72,7 +75,7 @@ void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
         {
             const auto& obj = m_placedObjects[i];
 
-            // スケールに応じたバウンディングボックスで判定
+          
             Vector3 minBounds = obj.position - (obj.scale * 0.5f);
             Vector3 maxBounds = obj.position + (obj.scale * 0.5f);
 
@@ -90,7 +93,7 @@ void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
         m_selectedIndex = hitIndex;
     }
 
-    // --- ProBuilder風 インタラクティブ作成処理 ---
+    
     if (m_creationState != CubeCreationState::None)
     {
         RECT rect = gameContext.deviceResources.GetOutputSize();
@@ -151,7 +154,6 @@ void EditorScene::Render(GameContext& gameContext)
         m_gridFloor->Render(context, m_view, m_projection);
     }
 
-    // シーンルート（全体）の行列を作成
     Matrix rootWorld = Matrix::CreateRotationX(XMConvertToRadians(m_sceneRootRotation.x)) *
                        Matrix::CreateRotationY(XMConvertToRadians(m_sceneRootRotation.y)) *
                        Matrix::CreateRotationZ(XMConvertToRadians(m_sceneRootRotation.z)) *
@@ -174,7 +176,6 @@ void EditorScene::Render(GameContext& gameContext)
         }
         else if (obj.primitive)
         {
-            // 選択中のオブジェクトは黄緑色で強調ハイライト
             XMVECTOR color = (static_cast<int>(i) == m_selectedIndex) ? DirectX::Colors::LimeGreen
                              : (obj.tag == "Player")                  ? DirectX::Colors::SkyBlue
                                                                       : DirectX::Colors::LightGray;
@@ -188,12 +189,42 @@ void EditorScene::Render(GameContext& gameContext)
         }
     }
 
-    // ★ プレイヤーの描画呼び出し
+   
     m_player.Render(context, gameContext.commonStates, m_view, m_projection);
+
+     if (m_showCollision && m_collisionRenderer)
+    {
+        constexpr float margin = 0.05f; 
+
+        float playerRadius = (0.5f * m_player.GetScale().x) + margin;
+        DirectX::BoundingSphere playerSphere(m_player.GetPosition(), playerRadius);
+        m_collisionRenderer->AddBoundingVolume(playerSphere);
+        
+
+            
+            for (const auto& obj : m_placedObjects)
+        {
+            Vector3 rotRad = Vector3(XMConvertToRadians(obj.rotation.x), XMConvertToRadians(obj.rotation.y),
+                                     XMConvertToRadians(obj.rotation.z));
+            Quaternion rotation = Quaternion::CreateFromYawPitchRoll(rotRad.y, rotRad.x, rotRad.z);
+
+            
+            XMFLOAT3 extents =
+                XMFLOAT3((obj.scale.x * 0.5f) + margin, (obj.scale.y * 0.5f) + margin, (obj.scale.z * 0.5f) + margin);
+
+            DirectX::BoundingOrientedBox objBox(obj.position, extents, rotation);
+            m_collisionRenderer->AddBoundingVolume(objBox);
+           
+        }
+
+        
+        m_collisionRenderer->DrawCollision(context, gameContext.commonStates, m_view, m_projection);
+       
+    }
 
     ImGui::Begin("Scene Editor Panel");
 
-    // --- 選択中オブジェクト編集用UI ---
+   
     if (m_selectedIndex >= 0 && m_selectedIndex < static_cast<int>(m_placedObjects.size()))
     {
         if (ImGui::CollapsingHeader("Selected Object Properties", ImGuiTreeNodeFlags_DefaultOpen))
@@ -212,7 +243,7 @@ void EditorScene::Render(GameContext& gameContext)
         ImGui::Separator();
     }
 
-    // --- シーン全体の一括操作 UI ---
+ 
     if (ImGui::CollapsingHeader("Global Scene Transform", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::DragFloat3("Root Position", &m_sceneRootPosition.x, 0.1f);
@@ -265,6 +296,7 @@ void EditorScene::Render(GameContext& gameContext)
     if (ImGui::CollapsingHeader("Viewport Settings", ImGuiTreeNodeFlags_DefaultOpen))
     {
         ImGui::Checkbox("Show Viewport Overlay", &m_showViewportGrid);
+        ImGui::Checkbox("Show Collision Volumes", &m_showCollision); 
     }
 
     if (ImGui::CollapsingHeader("Object Placement", ImGuiTreeNodeFlags_DefaultOpen))
@@ -338,7 +370,7 @@ void EditorScene::Render(GameContext& gameContext)
 
         int deleteIndex = -1;
 
-        // ★ オブジェクトツリー一覧の描画
+    
         for (size_t i = 0; i < m_placedObjects.size(); ++i)
         {
             ImGui::PushID(static_cast<int>(i));
@@ -382,7 +414,7 @@ void EditorScene::Render(GameContext& gameContext)
                                 obj.tag = "Default";
                         }
 
-                        // ★ Playerタグに変更されたら m_player に即時データとモデルを反映
+                        
                         auto device = gameContext.deviceResources.GetD3DDevice();
                         auto contextDevice = gameContext.deviceResources.GetD3DDeviceContext();
 
@@ -474,7 +506,6 @@ void EditorScene::LoadSceneFromJson(GameContext& gameContext, const std::string&
             }
         }
 
-        // ★ "Player" タグのオブジェクトがあれば m_player にトランスフォームとモデルを動的適用
         if (objData.tag == "Player")
         {
             m_player.SetPosition(objData.position);

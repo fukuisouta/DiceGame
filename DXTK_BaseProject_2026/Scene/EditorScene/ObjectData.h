@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <string>
 #include <vector>
@@ -8,7 +8,7 @@
 #include <GeometricPrimitive.h>
 #include <Model.h>
 
-// シーン保存用の型定義
+
 struct ObjectTransform
 {
     std::string modelName;
@@ -23,7 +23,6 @@ struct SceneData
     std::vector<ObjectTransform> objects;
 };
 
-// エディター/ゲーム内で管理するオブジェクトの型定義
 struct PlacedObject
 {
     std::string name;
@@ -36,4 +35,7 @@ struct PlacedObject
 
     std::shared_ptr<DirectX::Model> model;
     std::shared_ptr<DirectX::GeometricPrimitive> primitive;
+
+  
+    bool isOpen = false;
 };

@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include <fstream>
 #include <iomanip>
@@ -20,7 +20,7 @@ public:
         {
             json objJson;
             objJson["modelName"] = obj.modelName;
-            objJson["tag"] = obj.tag; // ★ 追加：タグをJSONに保存
+            objJson["tag"] = obj.tag; 
             objJson["position"] = {obj.position.x, obj.position.y, obj.position.z};
             objJson["rotation"] = {obj.rotation.x, obj.rotation.y, obj.rotation.z};
             objJson["scale"] = {obj.scale.x, obj.scale.y, obj.scale.z};
@@ -70,7 +70,7 @@ public:
             {
                 ObjectTransform obj;
                 obj.modelName = objJson.value("modelName", "");
-                // ★ 追加：tag が無ければ "Default" を自動設定（これで過去のJSONも壊れません！）
+              
                 obj.tag = objJson.value("tag", "Default");
 
                 if (objJson.contains("position") && objJson["position"].is_array() && objJson["position"].size() >= 3)

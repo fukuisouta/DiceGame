@@ -1,45 +1,40 @@
-#pragma once
+Ôªø#pragma once
 
-#include <vector>
 #include <memory>
+#include <vector>
 #include <string>
-#include <DirectXMath.h>
-#include <DirectXCollision.h>
-#include <Model.h>
-#include <GeometricPrimitive.h>
-#include "../SceneId.h"
-#include "GameContext.h"
+
 #include "ImaseLib/SceneManager.h"
-#include "ImaseLib/DebugCamera.h"
-#include "ImaseLib/DebugRenderer.h"
+#include "../SceneId.h"
 #include "Scene/EditorScene/ObjectData.h"
-#include "Player.h"
-
-struct LoadedObject
-{
-    std::shared_ptr<DirectX::Model> model;
-    std::shared_ptr<DirectX::GeometricPrimitive> primitive;
-
-    std::string tag;
-    DirectX::XMFLOAT3 position;
-    DirectX::XMFLOAT3 rotation;
-    DirectX::XMFLOAT3 scale;
-};
+#include "Game.h"
+#include "Scene/ModelTestScene/Player.h"
+#include "ImaseLib/CollisionRenderer.h"
 
 class ModelTestScene : public Imase::SceneBase<SceneId, GameContext>
 {
 public:
+    ModelTestScene() = default;
+    ~ModelTestScene() override = default;
+
+    void OnEnter(GameContext& gameContext) override;
     void Update(Imase::ISceneController<SceneId>& sceneController, GameContext& gameContext) override;
     void Render(GameContext& gameContext) override;
-    void OnEnter(GameContext& gameContext) override;
 
 private:
-    std::vector<LoadedObject> m_loadedObjects;
-    std::vector<PlacedObject> m_placedObjects; // Player::Update Ç…ìnÇ∑ópÇÃÉfÅ[É^
+    void LoadSceneFromJson(GameContext& gameContext, const std::string& filePath);
+
+private:
+    Player m_player;
 
     DirectX::SimpleMath::Matrix m_view;
     DirectX::SimpleMath::Matrix m_projection;
 
-    Player m_player;
+    std::vector<PlacedObject> m_placedObjects;
+    std::vector<PlacedObject> m_loadedObjects;
+
     bool m_isColliding = false;
+
+   
+    std::unique_ptr<Imase::CollisionRenderer> m_collisionRenderer;
 };
