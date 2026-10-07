@@ -10,7 +10,6 @@
 #include <vector>
 #include <string>
 #include <format>
-#include <utility>
 
 namespace Imase
 {
@@ -25,10 +24,10 @@ public:
 
     void Initialize(ID3D11Device* device, ID3D11DeviceContext* context);
 
-    // 通常のログ追加
+    
     void AddLog(const std::wstring& message);
 
-    // 書式付きログ追加 (AddLogFormat)
+   
     template <typename... Args> void AddLogFormat(const wchar_t* fmt, Args&&... args)
     {
         if constexpr (sizeof...(Args) == 0)
@@ -44,16 +43,10 @@ public:
 
     void Update(const DirectX::Mouse::State& mouseState, float screenWidth, float screenHeight);
 
-    // 引数7個の Render
+  
     void Render(ID3D11DeviceContext* context, DirectX::CommonStates& states, Imase::DebugRenderer& debugRenderer,
                 DirectX::PrimitiveBatch<DirectX::VertexPositionColor>* batchColor, DirectX::BasicEffect* effectColor,
                 float screenWidth, float screenHeight);
-
-    // 引数9個の Render (呼び出し側の互換用)
-    void Render(ID3D11DeviceContext* context, DirectX::CommonStates& states, Imase::DebugRenderer& debugRenderer,
-                DirectX::PrimitiveBatch<DirectX::VertexPositionTexture>* batchTex,
-                DirectX::PrimitiveBatch<DirectX::VertexPositionColor>* batchColor, DirectX::BasicEffect* effectTex,
-                DirectX::BasicEffect* effectColor, float screenWidth, float screenHeight);
 
     void ToggleWindow();
 
@@ -65,6 +58,16 @@ public:
     bool IsWindowVisible() const
     {
         return m_showLogWindow;
+    }
+
+    const RECT& GetButtonRect() const
+    {
+        return m_logButtonRect;
+    }
+
+    void SetButtonRect(const RECT& rect)
+    {
+        m_logButtonRect = rect;
     }
 
 private:

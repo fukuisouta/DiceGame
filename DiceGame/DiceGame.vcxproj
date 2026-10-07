@@ -224,6 +224,7 @@
     <ClInclude Include="Scene\GamePlayScene\CardDeckManager.h" />
     <ClInclude Include="Scene\GamePlayScene\DiceBattleAI.h" />
     <ClInclude Include="Scene\GamePlayScene\DiceBattleGame.h" />
+    <ClInclude Include="Scene\GamePlayScene\DiceViewer.h" />
     <ClInclude Include="Scene\GamePlayScene\GameLogManager.h" />
     <ClInclude Include="Scene\GamePlayScene\GamePlayScene.h" />
     <ClInclude Include="Scene\GamePlayScene\GamePlaySceneBase.h" />
@@ -311,6 +312,7 @@
     <ClCompile Include="Scene\GamePlayScene\AdvanceGamePlayScene.cpp" />
     <ClCompile Include="Scene\GamePlayScene\DiceBattleAI.cpp" />
     <ClCompile Include="Scene\GamePlayScene\DiceBattleGame.cpp" />
+    <ClCompile Include="Scene\GamePlayScene\DiceViewer.cpp" />
     <ClCompile Include="Scene\GamePlayScene\GameLogManager.cpp" />
     <ClCompile Include="Scene\GamePlayScene\GamePlayScene.cpp" />
     <ClCompile Include="Scene\GamePlayScene\GamePlaySceneBase.cpp" />

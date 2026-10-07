@@ -21,6 +21,10 @@
 
 #include "GameLogManager.h"
 #include "ParticleManager.h"
+#include "DiceViewer.h"
+
+// 前方宣言
+class Dice;
 
 class GamePlaySceneBase : public Imase::SceneBase<SceneId, GameContext>
 {
@@ -56,6 +60,9 @@ protected:
     void LoadSceneFromJson(GameContext& gameContext, const std::string& filePath);
     void ExecuteMove(int fromX, int fromY, int toX, int toY);
 
+    // プレビュー対象の Dice インスタンスを取得する関数
+    Dice* GetTargetDiceInstance();
+
 protected:
     GridField m_field;
     DiceBattleGame m_gameLogic;
@@ -72,6 +79,7 @@ protected:
     int m_selectedX = -1;
     int m_selectedY = -1;
 
+    // プレイ画面のカメラ位置（手前から奥を見るように Z を -20.0f に設定）
     DirectX::SimpleMath::Vector3 m_cameraEye = DirectX::SimpleMath::Vector3(0.0f, 22.0f, -20.0f);
     DirectX::SimpleMath::Vector3 m_cameraTarget = DirectX::SimpleMath::Vector3(0.0f, 0.0f, 0.0f);
     float m_cameraPitch = 48.0f;
@@ -91,6 +99,15 @@ protected:
     float m_turnNoticeMaxTime = 1.5f;
 
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_rollDiceButtonTexture;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_diceCheckButtonTexture;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_logButtonTexture;
+
+    // ★ 矢印ボタン用テクスチャ
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_arrowUpTexture;    // Flont.png (上方向)
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_arrowDownTexture;  // Buck.png (下方向)
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_arrowLeftTexture;  // Left.png
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_arrowRightTexture; // Right.png
+
     RECT m_rollButtonRect = {0, 0, 0, 0};
     bool m_isRollButtonHovered = false;
 
@@ -110,4 +127,13 @@ protected:
     std::unique_ptr<DirectX::BasicEffect> m_effect;
     std::unique_ptr<DirectX::BasicEffect> m_colorEffect;
     std::array<Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>, 4> m_diceCountTextures;
+
+    // --- ダイスチェック用メンバ ---
+    DiceViewer m_diceViewer;
+    RECT m_btnDiceCheckRect = {0, 0, 0, 0};
+    RECT m_btnDiceCheckCloseRect = {0, 0, 0, 0};
+    RECT m_btnDiceCheckResetRect = {0, 0, 0, 0};
+    bool m_isDiceCheckBtnHovered = false;
+    bool m_isDiceCheckCloseHovered = false;
+    bool m_isDiceCheckResetHovered = false;
 };

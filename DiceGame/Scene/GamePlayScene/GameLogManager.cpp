@@ -17,22 +17,12 @@ void GameLogManager::AddLog(const std::wstring& message)
     m_logs.push_back(message);
 
     int maxVisible = 10;
-  
     m_scrollOffset = std::max(0, static_cast<int>(m_logs.size()) - maxVisible);
 }
+
 void GameLogManager::Update(const DirectX::Mouse::State& mouseState, float screenWidth, float screenHeight)
 {
-    // 右上にログボタンを配置（幅 80px, 高さ 30px）
-    float btnWidth = 80.0f;
-    float btnHeight = 30.0f;
-    float btnX = screenWidth - btnWidth - 10.0f;
-    float btnY = 40.0f;
-
-    m_logButtonRect = {static_cast<LONG>(btnX), static_cast<LONG>(btnY), static_cast<LONG>(btnX + btnWidth),
-                       static_cast<LONG>(btnY + btnHeight)};
-
-    // マウスカーソルがボタン領域内にあるか判定
-    m_isButtonHovered = (mouseState.x >= m_logButtonRect.left && mouseState.x <= m_logButtonRect.right &&
+      m_isButtonHovered = (mouseState.x >= m_logButtonRect.left && mouseState.x <= m_logButtonRect.right &&
                          mouseState.y >= m_logButtonRect.top && mouseState.y <= m_logButtonRect.bottom);
 
     if (m_showLogWindow)
@@ -43,30 +33,20 @@ void GameLogManager::Update(const DirectX::Mouse::State& mouseState, float scree
 
         if (scrollDelta != 0)
         {
-            // ホイール1ノッチの移動量（感度調整：1〜3行分動かしたい場合は適宜調整）
             int step = 1;
-
             if (scrollDelta > 0)
-            {
-                m_scrollOffset -= step; // 上回転：過去（上）のログへ
-            }
+                m_scrollOffset -= step;
             else if (scrollDelta < 0)
-            {
-                m_scrollOffset += step; // 下回転：最新（下）のログへ
-            }
+                m_scrollOffset += step;
 
-            // ★ 最大スクロール位置は「全体のログ数 - 表示可能行数(10)」
             int maxVisible = 10;
             int maxOffset = std::max(0, static_cast<int>(m_logs.size()) - maxVisible);
 
-            // 範囲の制限（クランプ）
-            if (m_scrollOffset < 0)
-                m_scrollOffset = 0;
-            if (m_scrollOffset > maxOffset)
-                m_scrollOffset = maxOffset;
+            m_scrollOffset = std::clamp(m_scrollOffset, 0, maxOffset);
         }
     }
 }
+
 void GameLogManager::ToggleWindow()
 {
     m_showLogWindow = !m_showLogWindow;
@@ -81,22 +61,16 @@ void GameLogManager::Render(ID3D11DeviceContext* context, CommonStates& states, 
                             PrimitiveBatch<VertexPositionColor>* batchColor, BasicEffect* effectColor,
                             float screenWidth, float screenHeight)
 {
-
-  
-    // --- ポインタチェック (NULL 事故防止) ---
-    if (batchColor != nullptr && effectColor != nullptr)
+    // --- 1. ログウィンドウ背景の描画
+    if (m_showLogWindow && batchColor != nullptr && effectColor != nullptr)
     {
-        // 2D 描画用にスクリーンの正射影行列を設定
         Matrix projection = Matrix::CreateOrthographicOffCenter(0.0f, screenWidth, screenHeight, 0.0f, 0.0f, 1.0f);
         effectColor->SetProjection(projection);
         effectColor->SetWorld(Matrix::Identity);
         effectColor->SetView(Matrix::Identity);
         effectColor->SetVertexColorEnabled(true);
-
-        // 1. シェーダーパスの適用
         effectColor->Apply(context);
 
-        // 2. VertexPositionColor 用の InputLayout を取得して設定
         Microsoft::WRL::ComPtr<ID3D11Device> device;
         context->GetDevice(device.GetAddressOf());
 
@@ -105,78 +79,42 @@ void GameLogManager::Render(ID3D11DeviceContext* context, CommonStates& states, 
         size_t byteCodeLength = 0;
         effectColor->GetVertexShaderBytecode(&shaderByteCode, &byteCodeLength);
 
-        HRESULT hr =
-            device->CreateInputLayout(VertexPositionColor::InputElements, VertexPositionColor::InputElementCount,
-                                      shaderByteCode, byteCodeLength, inputLayout.GetAddressOf());
-
-        if (SUCCEEDED(hr))
+        if (SUCCEEDED(device->CreateInputLayout(VertexPositionColor::InputElements,
+                                                VertexPositionColor::InputElementCount, shaderByteCode, byteCodeLength,
+                                                inputLayout.GetAddressOf())))
         {
             context->IASetInputLayout(inputLayout.Get());
-
-            // パイプライン状態の設定
             context->OMSetBlendState(states.NonPremultiplied(), nullptr, 0xFFFFFFFF);
             context->RSSetState(states.CullNone());
             context->OMSetDepthStencilState(states.DepthNone(), 0);
 
-            // 描画開始
             batchColor->Begin();
 
-            // ボタン背景の描画
-            Vector4 btnCol = m_isButtonHovered ? Vector4(0.3f, 0.6f, 0.9f, 0.9f) : Vector4(0.2f, 0.2f, 0.3f, 0.8f);
-            VertexPositionColor v0(Vector3((float)m_logButtonRect.left, (float)m_logButtonRect.top, 0.0f), btnCol);
-            VertexPositionColor v1(Vector3((float)m_logButtonRect.right, (float)m_logButtonRect.top, 0.0f), btnCol);
-            VertexPositionColor v2(Vector3((float)m_logButtonRect.left, (float)m_logButtonRect.bottom, 0.0f), btnCol);
-            VertexPositionColor v3(Vector3((float)m_logButtonRect.right, (float)m_logButtonRect.bottom, 0.0f), btnCol);
+            float winWidth = 400.0f;
+            float winHeight = 300.0f;
+            float winX = screenWidth - winWidth - 10.0f;
+            float winY = 90.0f;
 
-            batchColor->DrawTriangle(v0, v1, v2);
-            batchColor->DrawTriangle(v2, v1, v3);
+            Vector4 winCol(0.05f, 0.05f, 0.1f, 0.85f);
+            VertexPositionColor w0(Vector3(winX, winY, 0.0f), winCol);
+            VertexPositionColor w1(Vector3(winX + winWidth, winY, 0.0f), winCol);
+            VertexPositionColor w2(Vector3(winX, winY + winHeight, 0.0f), winCol);
+            VertexPositionColor w3(Vector3(winX + winWidth, winY + winHeight, 0.0f), winCol);
 
-            // ログウィンドウ背景の描画（開いている場合）
-            if (m_showLogWindow)
-            {
-                float winWidth = 400.0f;
-                float winHeight = 300.0f;
-                float winX = screenWidth - winWidth - 10.0f;
-                float winY = 80.0f;
-
-                Vector4 winCol(0.05f, 0.05f, 0.1f, 0.85f);
-                VertexPositionColor w0(Vector3(winX, winY, 0.0f), winCol);
-                VertexPositionColor w1(Vector3(winX + winWidth, winY, 0.0f), winCol);
-                VertexPositionColor w2(Vector3(winX, winY + winHeight, 0.0f), winCol);
-                VertexPositionColor w3(Vector3(winX + winWidth, winY + winHeight, 0.0f), winCol);
-
-                batchColor->DrawTriangle(w0, w1, w2);
-                batchColor->DrawTriangle(w2, w1, w3);
-            }
+            batchColor->DrawTriangle(w0, w1, w2);
+            batchColor->DrawTriangle(w2, w1, w3);
 
             batchColor->End();
         }
     }
 
-    // --- 2. DebugRenderer へのテキスト描画予約 ---
-    debugRenderer.DrawText(Vector2((float)m_logButtonRect.left + 22.0f, (float)m_logButtonRect.top + 5.0f),
-                           Colors::White, L"log");
-
-    /*if (m_showLogWindow)
-    {
-        float winX = screenWidth - 400.0f - 10.0f;
-        float startY = 90.0f;
-        int maxVisible = 10;
-        int startIdx = std::max(0, static_cast<int>(m_logs.size()) - maxVisible);
-
-        for (size_t i = startIdx; i < m_logs.size(); ++i)
-        {
-            float lineY = startY + (i - startIdx) * 26.0f;
-            debugRenderer.DrawText(Vector2(winX + 15.0f, lineY), Colors::Yellow, m_logs[i]);
-        }
-    }*/
+    // --- 2. ログテキストの描画 ---
     if (m_showLogWindow)
     {
         float winX = screenWidth - 400.0f - 10.0f;
-        float startY = 90.0f;
-        int maxVisible = 10; // ウィンドウ内に表示する行数
+        float startY = 100.0f;
+        int maxVisible = 10;
 
-        // ★ m_scrollOffset を先頭（1行目）の位置として使用する
         int startIdx = m_scrollOffset;
         int endIdx = std::min(static_cast<int>(m_logs.size()), startIdx + maxVisible);
 
@@ -186,15 +124,4 @@ void GameLogManager::Render(ID3D11DeviceContext* context, CommonStates& states, 
             debugRenderer.DrawText(Vector2(winX + 15.0f, lineY), Colors::Yellow, m_logs[i]);
         }
     }
-}
-
-// 呼び出し互換用（引数9個のRender）
-void GameLogManager::Render(ID3D11DeviceContext* context, DirectX::CommonStates& states,
-                            Imase::DebugRenderer& debugRenderer,
-                            DirectX::PrimitiveBatch<DirectX::VertexPositionTexture>* batchTex,
-                            DirectX::PrimitiveBatch<DirectX::VertexPositionColor>* batchColor,
-                            DirectX::BasicEffect* effectTex, DirectX::BasicEffect* effectColor, float screenWidth,
-                            float screenHeight)
-{
-    Render(context, states, debugRenderer, batchColor, effectColor, screenWidth, screenHeight);
 }

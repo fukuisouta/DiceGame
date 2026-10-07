@@ -26,6 +26,35 @@ void GamePlaySceneBase::ResetMoveState()
     m_cursorY = -1;
 }
 
+Dice* GamePlaySceneBase::GetTargetDiceInstance()
+{
+    // 1. 選択中のマスにコマがあればそれを優先
+    if (m_selectedX >= 0 && m_selectedY >= 0)
+    {
+        const auto* piece = m_gameLogic.GetPieceAt(m_selectedX, m_selectedY);
+        if (piece && piece->isActive && piece->diceInstance)
+            return piece->diceInstance.get();
+    }
+
+    // 2. マウスホバー中のマスにコマがあればそれを表示
+    if (m_cursorX >= 0 && m_cursorY >= 0)
+    {
+        const auto* piece = m_gameLogic.GetPieceAt(m_cursorX, m_cursorY);
+        if (piece && piece->isActive && piece->diceInstance)
+            return piece->diceInstance.get();
+    }
+
+    // 3. どちらもなければ存在する最初のコマを表示
+    const auto& pieces = m_gameLogic.GetPieces();
+    for (const auto& piece : pieces)
+    {
+        if (piece.isActive && piece.diceInstance)
+            return piece.diceInstance.get();
+    }
+
+    return nullptr;
+}
+
 void GamePlaySceneBase::OnEnter(GameContext& gameContext)
 {
     ID3D11Device* device = gameContext.deviceResources.GetD3DDevice();
@@ -86,6 +115,20 @@ void GamePlaySceneBase::OnEnter(GameContext& gameContext)
                                       m_diceCountTextures[3].ReleaseAndGetAddressOf());
     DirectX::CreateWICTextureFromFile(device, L"Resources/Textures/RollDice.png", nullptr,
                                       m_rollDiceButtonTexture.ReleaseAndGetAddressOf());
+    DirectX::CreateWICTextureFromFile(device, L"Resources/Textures/DiceCheck.png", nullptr,
+                                      m_diceCheckButtonTexture.ReleaseAndGetAddressOf());
+    DirectX::CreateWICTextureFromFile(device, L"Resources/Textures/LOG.png", nullptr,
+                                      m_logButtonTexture.ReleaseAndGetAddressOf());
+
+    // ★ 矢印ボタン画像のロード
+    DirectX::CreateWICTextureFromFile(device, L"Resources/Textures/Flont.png", nullptr,
+                                      m_arrowUpTexture.ReleaseAndGetAddressOf());
+    DirectX::CreateWICTextureFromFile(device, L"Resources/Textures/Buck.png", nullptr,
+                                      m_arrowDownTexture.ReleaseAndGetAddressOf());
+    DirectX::CreateWICTextureFromFile(device, L"Resources/Textures/Left.png", nullptr,
+                                      m_arrowLeftTexture.ReleaseAndGetAddressOf());
+    DirectX::CreateWICTextureFromFile(device, L"Resources/Textures/Right.png", nullptr,
+                                      m_arrowRightTexture.ReleaseAndGetAddressOf());
 
     m_particleManager.Clear();
     m_isGameOver = false;
@@ -96,6 +139,12 @@ void GamePlaySceneBase::OnEnter(GameContext& gameContext)
     m_logManager.Initialize(device, context);
     m_previousTurn = m_gameLogic.GetCurrentTurn();
     m_gameLogic.SetRemainingSteps(0);
+
+    // ダイスビューワー初期化
+    auto outputSize = gameContext.deviceResources.GetOutputSize();
+    float screenWidth = static_cast<float>(outputSize.right - outputSize.left);
+    float screenHeight = static_cast<float>(outputSize.bottom - outputSize.top);
+    m_diceViewer.Initialize(screenWidth / screenHeight);
 
     // 派生クラスの初期化呼出
     OnModeEnter(gameContext);
@@ -198,6 +247,78 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
     auto& kb = gameContext.keyboardTracker;
     auto kbState = DirectX::Keyboard::Get().GetState();
 
+    auto mouseState = DirectX::Mouse::Get().GetState();
+    static DirectX::Mouse::ButtonStateTracker mouseTracker;
+    mouseTracker.Update(mouseState);
+
+    auto outputSize = gameContext.deviceResources.GetOutputSize();
+    float screenWidth = static_cast<float>(outputSize.right - outputSize.left);
+    float screenHeight = static_cast<float>(outputSize.bottom - outputSize.top);
+
+    // ==========================================
+    // ★ ダイスチェック画面処理（モーダル表示中）
+    // ==========================================
+    if (m_diceViewer.IsOpen())
+    {
+        m_diceViewer.SetAspectRatio(screenWidth / screenHeight);
+        m_diceViewer.Update(mouseState, dt);
+
+        m_isDiceCheckCloseHovered =
+            (mouseState.x >= m_btnDiceCheckCloseRect.left && mouseState.x <= m_btnDiceCheckCloseRect.right &&
+             mouseState.y >= m_btnDiceCheckCloseRect.top && mouseState.y <= m_btnDiceCheckCloseRect.bottom);
+        m_isDiceCheckResetHovered =
+            (mouseState.x >= m_btnDiceCheckResetRect.left && mouseState.x <= m_btnDiceCheckResetRect.right &&
+             mouseState.y >= m_btnDiceCheckResetRect.top && mouseState.y <= m_btnDiceCheckResetRect.bottom);
+
+        if (mouseTracker.leftButton == DirectX::Mouse::ButtonStateTracker::PRESSED)
+        {
+            if (m_isDiceCheckCloseHovered)
+            {
+                m_diceViewer.Close();
+                return;
+            }
+            if (m_isDiceCheckResetHovered)
+            {
+                // リセット時も元のダイスの向きを引き継いでリセット
+                Dice* targetDice = GetTargetDiceInstance();
+                if (targetDice)
+                    m_diceViewer.ResetCameraWithRotation(targetDice->GetRotation());
+                else
+                    m_diceViewer.ResetCamera();
+            }
+        }
+
+        if (kb.IsKeyPressed(DirectX::Keyboard::Keys::Escape))
+        {
+            m_diceViewer.Close();
+            return;
+        }
+
+        // ダイスチェック中はゲーム本編の操作・更新を中断
+        return;
+    }
+
+    // 「ダイス確認」ボタン押し判定
+    m_isDiceCheckBtnHovered = (mouseState.x >= m_btnDiceCheckRect.left && mouseState.x <= m_btnDiceCheckRect.right &&
+                               mouseState.y >= m_btnDiceCheckRect.top && mouseState.y <= m_btnDiceCheckRect.bottom);
+
+    if (m_isDiceCheckBtnHovered && mouseTracker.leftButton == DirectX::Mouse::ButtonStateTracker::PRESSED)
+    {
+        m_diceViewer.Open();
+
+        // ターゲットのダイスの現在の回転姿勢を引き継ぐ
+        Dice* targetDice = GetTargetDiceInstance();
+        if (targetDice)
+            m_diceViewer.ResetCameraWithRotation(targetDice->GetRotation());
+        else
+            m_diceViewer.ResetCamera();
+
+        return;
+    }
+
+    // ==========================================
+    // 通常の更新処理
+    // ==========================================
     bool isCtrlPressed = kbState.IsKeyDown(DirectX::Keyboard::Keys::LeftControl) ||
                          kbState.IsKeyDown(DirectX::Keyboard::Keys::RightControl);
 
@@ -248,10 +369,6 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
 
     if (m_isGameOver)
     {
-        auto mouseState = DirectX::Mouse::Get().GetState();
-        static DirectX::Mouse::ButtonStateTracker mouseTracker;
-        mouseTracker.Update(mouseState);
-
         m_isRetryHovered = (mouseState.x >= m_retryButtonRect.left && mouseState.x <= m_retryButtonRect.right &&
                             mouseState.y >= m_retryButtonRect.top && mouseState.y <= m_retryButtonRect.bottom);
         m_isTitleHovered = (mouseState.x >= m_titleButtonRect.left && mouseState.x <= m_titleButtonRect.right &&
@@ -287,7 +404,8 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
         m_isGameOver = true;
         m_gameOverSelectIndex = 0;
         m_winnerPlayer = m_gameLogic.GetWinner();
-        AddLog(m_winnerPlayer == PlayerType::Player1 ? L"ゲームエンド：あなたのしょうり！" : L"ゲームエンド：CPUのしょうり");
+        AddLog(m_winnerPlayer == PlayerType::Player1 ? L"ゲームエンド：あなたのしょうり！"
+                                                     : L"ゲームエンド：CPUのしょうり");
         return;
     }
 
@@ -322,13 +440,6 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
     bool isPlayerTurn = (m_gameLogic.GetCurrentTurn() == PlayerType::Player1);
     bool canRoll = (isPlayerTurn && !m_gameLogic.IsWaitingForRoll() && !m_gameLogic.IsGameOver());
 
-    auto mouseState = DirectX::Mouse::Get().GetState();
-    static DirectX::Mouse::ButtonStateTracker mouseTracker;
-    mouseTracker.Update(mouseState);
-
-    auto outputSize = gameContext.deviceResources.GetOutputSize();
-    float screenWidth = static_cast<float>(outputSize.right - outputSize.left);
-    float screenHeight = static_cast<float>(outputSize.bottom - outputSize.top);
     float aspectRatio = screenWidth / screenHeight;
 
     m_logManager.Update(mouseState, screenWidth, screenHeight);
@@ -357,7 +468,8 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
         m_isRightHovered = (mouseState.x >= m_btnRightRect.left && mouseState.x <= m_btnRightRect.right &&
                             mouseState.y >= m_btnRightRect.top && mouseState.y <= m_btnRightRect.bottom);
 
-        if (mouseTracker.leftButton == DirectX::Mouse::ButtonStateTracker::PRESSED && !m_logManager.IsButtonHovered())
+        if (mouseTracker.leftButton == DirectX::Mouse::ButtonStateTracker::PRESSED && !m_logManager.IsButtonHovered() &&
+            !m_isDiceCheckBtnHovered)
         {
             m_particleManager.SpawnClickParticles(static_cast<float>(mouseState.x), static_cast<float>(mouseState.y),
                                                   25);
@@ -394,7 +506,7 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
         if (IsModeSelectingTarget())
         {
             if (mouseTracker.leftButton == DirectX::Mouse::ButtonStateTracker::PRESSED &&
-                !m_logManager.IsButtonHovered())
+                !m_logManager.IsButtonHovered() && !m_isDiceCheckBtnHovered)
             {
                 OnModeGridClicked(hoveredGridX, hoveredGridY);
             }
@@ -404,7 +516,7 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
             bool canControlPiece = !m_gameLogic.IsWaitingForRoll() && (m_gameLogic.GetRemainingSteps() > 0) &&
                                    !m_gameLogic.IsAnyPieceMoving();
 
-            if (canControlPiece && !m_logManager.IsButtonHovered())
+            if (canControlPiece && !m_logManager.IsButtonHovered() && !m_isDiceCheckBtnHovered)
             {
                 if (mouseTracker.leftButton == DirectX::Mouse::ButtonStateTracker::PRESSED && !m_isRollButtonHovered &&
                     !m_isUpHovered && !m_isDownHovered && !m_isLeftHovered && !m_isRightHovered)
@@ -528,66 +640,157 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
     // 派生クラスのUI・2D描画
     OnModeRender2D(context, screenWidth, screenHeight, gameContext);
 
-    m_logManager.Render(context, gameContext.commonStates, gameContext.debugRenderer, m_primitiveBatch.get(),
-                        m_colorPrimitiveBatch.get(), m_effect.get(), m_colorEffect.get(), screenWidth, screenHeight);
+    // ログマネージャーのレンダリング（背景ウィンドウとテキスト）
+    m_logManager.Render(context, gameContext.commonStates, gameContext.debugRenderer, m_colorPrimitiveBatch.get(),
+                        m_colorEffect.get(), screenWidth, screenHeight);
+    // ==========================================
+    // ★ 画面上部UIボタン描画（LOG / ダイス確認）
+    // ==========================================
+    // GamePlaySceneBase.cpp の Render 内
 
-    // 矢印ボタン描画
-    bool canControlPiece = (m_gameLogic.GetCurrentTurn() == PlayerType::Player1) && !m_gameLogic.IsWaitingForRoll() &&
-                           (m_gameLogic.GetRemainingSteps() > 0) && !m_gameLogic.IsAnyPieceMoving();
-    if (canControlPiece)
+    if (!m_diceViewer.IsOpen() && !m_isGameOver)
     {
-        context->IASetInputLayout(colorInputLayout.Get());
-        m_colorEffect->Apply(context);
-        m_colorPrimitiveBatch->Begin();
+        // ★ 全UIボタン共通のサイズ設定
+        float topBtnW = 180.0f; // 拡大後の統一サイズ（幅）
+        float topBtnH = 100.0f; // 拡大後の統一サイズ（高さ）
+        float margin = 20.0f;   // 画面端からの余白
 
-        float btnSize = 45.0f, spacing = 12.0f;
-        float arrowCenterX = screenWidth - 160.0f, arrowCenterY = screenHeight - 180.0f;
-        float offset = btnSize + spacing;
+        // 1. 左上：ダイスチェックボタン
+        m_btnDiceCheckRect = {static_cast<LONG>(margin), static_cast<LONG>(margin), static_cast<LONG>(margin + topBtnW),
+                              static_cast<LONG>(margin + topBtnH)};
 
-        m_btnUpRect = {static_cast<LONG>(arrowCenterX - btnSize * 0.5f),
-                       static_cast<LONG>(arrowCenterY - btnSize * 0.5f - offset),
-                       static_cast<LONG>(arrowCenterX + btnSize * 0.5f),
-                       static_cast<LONG>(arrowCenterY + btnSize * 0.5f - offset)};
-        m_btnDownRect = {static_cast<LONG>(arrowCenterX - btnSize * 0.5f),
-                         static_cast<LONG>(arrowCenterY - btnSize * 0.5f + offset),
-                         static_cast<LONG>(arrowCenterX + btnSize * 0.5f),
-                         static_cast<LONG>(arrowCenterY + btnSize * 0.5f + offset)};
-        m_btnLeftRect = {static_cast<LONG>(arrowCenterX - btnSize * 0.5f - offset),
-                         static_cast<LONG>(arrowCenterY - btnSize * 0.5f),
-                         static_cast<LONG>(arrowCenterX + btnSize * 0.5f - offset),
-                         static_cast<LONG>(arrowCenterY + btnSize * 0.5f)};
-        m_btnRightRect = {static_cast<LONG>(arrowCenterX - btnSize * 0.5f + offset),
-                          static_cast<LONG>(arrowCenterY - btnSize * 0.5f),
-                          static_cast<LONG>(arrowCenterX + btnSize * 0.5f + offset),
-                          static_cast<LONG>(arrowCenterY + btnSize * 0.5f)};
+        // 2. 右上：LOGボタン
+        RECT logRect = {static_cast<LONG>(screenWidth - topBtnW - margin), static_cast<LONG>(margin),
+                        static_cast<LONG>(screenWidth - margin), static_cast<LONG>(margin + topBtnH)};
+        m_logManager.SetButtonRect(logRect); // LogManagerへ統一RECTをセット
 
-        bool isSelected = (m_selectedX != -1);
-        float alpha = isSelected ? 0.85f : 0.3f;
-
-        auto DrawButtonBg = [&](const RECT& rect, bool isHovered, Vector4 baseCol)
+        // ★ 共通テクスチャ描画処理
+        auto DrawTextureButton = [&](ID3D11ShaderResourceView* tex, const RECT& rect, bool isHovered)
         {
-            Vector4 col = isHovered && isSelected ? Vector4(1.0f, 0.85f, 0.2f, 0.95f) : baseCol;
-            col.w *= alpha;
-            VertexPositionColor v0(Vector3((float)rect.left, (float)rect.top, 0), col);
-            VertexPositionColor v1(Vector3((float)rect.right, (float)rect.top, 0), col);
-            VertexPositionColor v2(Vector3((float)rect.left, (float)rect.bottom, 0), col);
-            VertexPositionColor v3(Vector3((float)rect.right, (float)rect.bottom, 0), col);
-            m_colorPrimitiveBatch->DrawTriangle(v0, v1, v2);
-            m_colorPrimitiveBatch->DrawTriangle(v2, v1, v3);
+            if (!tex)
+                return;
+
+            float baseW = static_cast<float>(rect.right - rect.left);
+            float baseH = static_cast<float>(rect.bottom - rect.top);
+            float scale = isHovered ? 1.05f : 1.0f; // ホバー時拡大
+
+            float bWidth = baseW * scale;
+            float bHeight = baseH * scale;
+
+            float btnX = static_cast<float>(rect.left) - (bWidth - baseW) * 0.5f;
+            float btnY = static_cast<float>(rect.top) - (bHeight - baseH) * 0.5f;
+
+            context->IASetInputLayout(inputLayout.Get());
+            m_effect->SetTexture(tex);
+            m_effect->Apply(context);
+
+            m_primitiveBatch->Begin();
+            VertexPositionTexture v0(Vector3(btnX, btnY, 0.0f), Vector2(0.0f, 0.0f));
+            VertexPositionTexture v1(Vector3(btnX + bWidth, btnY, 0.0f), Vector2(1.0f, 0.0f));
+            VertexPositionTexture v2(Vector3(btnX, btnY + bHeight, 0.0f), Vector2(0.0f, 1.0f));
+            VertexPositionTexture v3(Vector3(btnX + bWidth, btnY + bHeight, 0.0f), Vector2(1.0f, 1.0f));
+            m_primitiveBatch->DrawTriangle(v0, v1, v2);
+            m_primitiveBatch->DrawTriangle(v2, v1, v3);
+            m_primitiveBatch->End();
         };
 
-        DrawButtonBg(m_btnUpRect, m_isUpHovered, Vector4(0.1f, 0.5f, 0.9f, 0.8f));
-        DrawButtonBg(m_btnDownRect, m_isDownHovered, Vector4(0.1f, 0.5f, 0.9f, 0.8f));
-        DrawButtonBg(m_btnLeftRect, m_isLeftHovered, Vector4(0.1f, 0.5f, 0.9f, 0.8f));
-        DrawButtonBg(m_btnRightRect, m_isRightHovered, Vector4(0.1f, 0.5f, 0.9f, 0.8f));
-        m_colorPrimitiveBatch->End();
+        // 描画実行
+        DrawTextureButton(m_diceCheckButtonTexture.Get(), m_btnDiceCheckRect, m_isDiceCheckBtnHovered);
+        DrawTextureButton(m_logButtonTexture.Get(), logRect, m_logManager.IsButtonHovered());
+    }
+   //// LOGボタン画像の描画（他のUIボタンと同じ描画方式に統一）
+   // if (!m_diceViewer.IsOpen() && !m_isGameOver && m_logButtonTexture)
+   // {
+   //     const RECT& logRect = m_logManager.GetButtonRect();
+   //     float btnX = static_cast<float>(logRect.left);
+   //     float btnY = static_cast<float>(logRect.top);
+   //     float bWidth = static_cast<float>(logRect.right - logRect.left);
+   //     float bHeight = static_cast<float>(logRect.bottom - logRect.top);
+
+   //     context->IASetInputLayout(inputLayout.Get());
+   //     m_effect->SetTexture(m_logButtonTexture.Get());
+   //     m_effect->Apply(context);
+
+   //     m_primitiveBatch->Begin();
+   //     VertexPositionTexture v0(Vector3(btnX, btnY, 0.0f), Vector2(0.0f, 0.0f));
+   //     VertexPositionTexture v1(Vector3(btnX + bWidth, btnY, 0.0f), Vector2(1.0f, 0.0f));
+   //     VertexPositionTexture v2(Vector3(btnX, btnY + bHeight, 0.0f), Vector2(0.0f, 1.0f));
+   //     VertexPositionTexture v3(Vector3(btnX + bWidth, btnY + bHeight, 0.0f), Vector2(1.0f, 1.0f));
+   //     m_primitiveBatch->DrawTriangle(v0, v1, v2);
+   //     m_primitiveBatch->DrawTriangle(v2, v1, v3);
+   //     m_primitiveBatch->End();
+   // }
+
+   // ==========================================
+    // ★ 矢印ボタン描画（画像のアスペクト比を維持）
+    // ==========================================
+    bool canControlPiece = (m_gameLogic.GetCurrentTurn() == PlayerType::Player1) && !m_gameLogic.IsWaitingForRoll() &&
+                           (m_gameLogic.GetRemainingSteps() > 0) && !m_gameLogic.IsAnyPieceMoving();
+    if (canControlPiece && !m_diceViewer.IsOpen())
+    {
+        float arrowCenterX = screenWidth - 160.0f;
+        float arrowCenterY = screenHeight - 180.0f;
+        float spacing = 15.0f;
+
+        bool isSelected = (m_selectedX != -1);
+
+        // 幅(w) と 高さ(h) を個別に受け取って描画するラムダ式
+        auto DrawArrowButton = [&](ID3D11ShaderResourceView* tex, bool isHovered, float baseW, float baseH, float cx,
+                                   float cy, RECT& outRect)
+        {
+            float scale = (isHovered && isSelected) ? 1.1f : 1.0f;
+            float btnW = baseW * scale;
+            float btnH = baseH * scale;
+
+            float x = cx - btnW * 0.5f;
+            float y = cy - btnH * 0.5f;
+
+            outRect = {static_cast<LONG>(x), static_cast<LONG>(y), static_cast<LONG>(x + btnW),
+                       static_cast<LONG>(y + btnH)};
+
+            if (tex)
+            {
+                context->IASetInputLayout(inputLayout.Get());
+                m_effect->SetTexture(tex);
+                m_effect->Apply(context);
+
+                m_primitiveBatch->Begin();
+                VertexPositionTexture v0(Vector3(x, y, 0.0f), Vector2(0.0f, 0.0f));
+                VertexPositionTexture v1(Vector3(x + btnW, y, 0.0f), Vector2(1.0f, 0.0f));
+                VertexPositionTexture v2(Vector3(x, y + btnH, 0.0f), Vector2(0.0f, 1.0f));
+                VertexPositionTexture v3(Vector3(x + btnW, y + btnH, 0.0f), Vector2(1.0f, 1.0f));
+                m_primitiveBatch->DrawTriangle(v0, v1, v2);
+                m_primitiveBatch->DrawTriangle(v2, v1, v3);
+                m_primitiveBatch->End();
+            }
+        };
+
+        // 上下用サイズ
+        float verticalW = 75.0f;
+        float verticalH = 140.0f;
+
+        // 左右用サイズ
+        float horizontalW = 140.0f;
+        float horizontalH = 75.0f;
+
+        float offsetVert = verticalH * 0.5f + spacing;
+        float offsetHoriz = horizontalW * 0.5f + spacing;
+
+        DrawArrowButton(m_arrowUpTexture.Get(), m_isUpHovered, verticalW, verticalH, arrowCenterX,
+                        arrowCenterY - offsetVert, m_btnUpRect);
+        DrawArrowButton(m_arrowDownTexture.Get(), m_isDownHovered, verticalW, verticalH, arrowCenterX,
+                        arrowCenterY + offsetVert, m_btnDownRect);
+        DrawArrowButton(m_arrowLeftTexture.Get(), m_isLeftHovered, horizontalW, horizontalH, arrowCenterX - offsetHoriz,
+                        arrowCenterY, m_btnLeftRect);
+        DrawArrowButton(m_arrowRightTexture.Get(), m_isRightHovered, horizontalW, horizontalH,
+                        arrowCenterX + offsetHoriz, arrowCenterY, m_btnRightRect);
     }
 
     // ダイスボタン
     context->IASetInputLayout(inputLayout.Get());
     bool canRoll = (m_gameLogic.GetCurrentTurn() == PlayerType::Player1 && !m_gameLogic.IsWaitingForRoll() &&
                     !m_gameLogic.IsGameOver() && m_gameLogic.GetRemainingSteps() == 0);
-    if (canRoll && m_rollDiceButtonTexture)
+    if (canRoll && m_rollDiceButtonTexture && !m_diceViewer.IsOpen())
     {
         float baseWidth = 220.0f, baseHeight = 120.0f;
         float scale = m_isRollButtonHovered ? 1.08f : 1.0f;
@@ -614,7 +817,7 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
     m_particleManager.Render(context, m_colorPrimitiveBatch.get(), m_colorEffect.get());
 
     // ターン告知
-    if (m_turnNoticeTimer > 0.0f && !m_turnNoticeText.empty())
+    if (m_turnNoticeTimer > 0.0f && !m_turnNoticeText.empty() && !m_diceViewer.IsOpen())
     {
         float textX = (screenWidth * 0.5f) - (static_cast<float>(m_turnNoticeText.length()) * 8.0f);
         float textY = screenHeight * 0.35f;
@@ -633,9 +836,103 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
         gameContext.debugRenderer.DrawText({textX, textY}, m_turnNoticeText.c_str());
     }
 
+    //// ==========================================
+    //// ★ 「ダイス確認」ボタン（画像テクスチャ描画）
+    //// ==========================================
+    //if (!m_diceViewer.IsOpen() && !m_isGameOver && m_diceCheckButtonTexture)
+    //{
+    //    float baseWidth = 280.0f;
+    //    float baseHeight = 160.0f;
+    //    float scale = m_isDiceCheckBtnHovered ? 1.05f : 1.0f;
+
+    //    float bWidth = baseWidth * scale;
+    //    float bHeight = baseHeight * scale;
+
+    //    float btnX = 20.0f - (bWidth - baseWidth) * 0.5f;
+    //    float btnY = 20.0f - (bHeight - baseHeight) * 0.5f;
+
+    //    m_btnDiceCheckRect = {static_cast<LONG>(btnX), static_cast<LONG>(btnY), static_cast<LONG>(btnX + bWidth),
+    //                          static_cast<LONG>(btnY + bHeight)};
+
+    //    context->IASetInputLayout(inputLayout.Get());
+    //    m_effect->SetTexture(m_diceCheckButtonTexture.Get());
+    //    m_effect->Apply(context);
+
+    //    m_primitiveBatch->Begin();
+    //    VertexPositionTexture v0(Vector3(btnX, btnY, 0.0f), Vector2(0.0f, 0.0f));
+    //    VertexPositionTexture v1(Vector3(btnX + bWidth, btnY, 0.0f), Vector2(1.0f, 0.0f));
+    //    VertexPositionTexture v2(Vector3(btnX, btnY + bHeight, 0.0f), Vector2(0.0f, 1.0f));
+    //    VertexPositionTexture v3(Vector3(btnX + bWidth, btnY + bHeight, 0.0f), Vector2(1.0f, 1.0f));
+    //    m_primitiveBatch->DrawTriangle(v0, v1, v2);
+    //    m_primitiveBatch->DrawTriangle(v2, v1, v3);
+    //    m_primitiveBatch->End();
+    //}
+
+    // ==========================================
+    // ★ ダイスチェックモーダル画面
+    // ==========================================
+    if (m_diceViewer.IsOpen())
+    {
+        // 1. 背景の暗転（半透明オーバーレイ）
+        context->IASetInputLayout(colorInputLayout.Get());
+        m_colorEffect->Apply(context);
+        m_colorPrimitiveBatch->Begin();
+        Vector4 bgCol(0.0f, 0.0f, 0.0f, 0.75f);
+        VertexPositionColor bg0(Vector3(0.0f, 0.0f, 0.0f), bgCol);
+        VertexPositionColor bg1(Vector3(screenWidth, 0.0f, 0.0f), bgCol);
+        VertexPositionColor bg2(Vector3(0.0f, screenHeight, 0.0f), bgCol);
+        VertexPositionColor bg3(Vector3(screenWidth, screenHeight, 0.0f), bgCol);
+        m_colorPrimitiveBatch->DrawTriangle(bg0, bg1, bg2);
+        m_colorPrimitiveBatch->DrawTriangle(bg2, bg1, bg3);
+
+        // 2. ボタンUI (閉じる / 視点リセット)
+        m_btnDiceCheckResetRect = {static_cast<LONG>(screenWidth - 270), 30, static_cast<LONG>(screenWidth - 150), 70};
+        m_btnDiceCheckCloseRect = {static_cast<LONG>(screenWidth - 130), 30, static_cast<LONG>(screenWidth - 10), 70};
+
+        Vector4 resetCol =
+            m_isDiceCheckResetHovered ? Vector4(0.8f, 0.8f, 0.2f, 0.9f) : Vector4(0.4f, 0.4f, 0.4f, 0.8f);
+        Vector4 closeCol =
+            m_isDiceCheckCloseHovered ? Vector4(0.9f, 0.3f, 0.3f, 0.9f) : Vector4(0.6f, 0.2f, 0.2f, 0.8f);
+
+        auto DrawBox = [&](const RECT& rect, Vector4 col)
+        {
+            VertexPositionColor v0(Vector3((float)rect.left, (float)rect.top, 0), col);
+            VertexPositionColor v1(Vector3((float)rect.right, (float)rect.top, 0), col);
+            VertexPositionColor v2(Vector3((float)rect.left, (float)rect.bottom, 0), col);
+            VertexPositionColor v3(Vector3((float)rect.right, (float)rect.bottom, 0), col);
+            m_colorPrimitiveBatch->DrawTriangle(v0, v1, v2);
+            m_colorPrimitiveBatch->DrawTriangle(v2, v1, v3);
+        };
+
+        DrawBox(m_btnDiceCheckResetRect, resetCol);
+        DrawBox(m_btnDiceCheckCloseRect, closeCol);
+        m_colorPrimitiveBatch->End();
+
+        // 3. UIテキスト描画
+        gameContext.debugRenderer.DrawText({30.0f, 30.0f}, L"【ダイスチェックモード】");
+        gameContext.debugRenderer.DrawText({30.0f, 60.0f}, L"ドラッグ: 自由回転 | ホイール: 拡大・縮小");
+        gameContext.debugRenderer.DrawText({static_cast<float>(screenWidth - 250), 40.0f}, L"視点リセット");
+        gameContext.debugRenderer.DrawText({static_cast<float>(screenWidth - 100), 40.0f}, L"閉じる");
+
+        // 4. 中央でのダイス3D描画（選択中のコマのプレビュー）
+        context->OMSetDepthStencilState(gameContext.commonStates.DepthDefault(), 0);
+
+        Matrix viewerView = m_diceViewer.GetViewMatrix();
+        Matrix viewerProj = m_diceViewer.GetProjectionMatrix();
+        Matrix viewerWorld = m_diceViewer.GetWorldMatrix();
+
+        // 選択されたコマ（またはホバー中・最初のコマ）を取得して描画
+        Dice* targetDice = GetTargetDiceInstance();
+        if (targetDice)
+        {
+            targetDice->Render(context, gameContext.commonStates, viewerWorld, viewerView, viewerProj);
+        }
+    }
+
     // リザルトダイアログ
     if (m_isGameOver)
     {
+        context->IASetInputLayout(colorInputLayout.Get());
         m_colorEffect->Apply(context);
         m_colorPrimitiveBatch->Begin();
         VertexPositionColor bg0(Vector3(0.0f, 0.0f, 0.0f), Vector4(0.0f, 0.0f, 0.0f, 0.75f));
