@@ -69,17 +69,17 @@ void AdvanceGamePlayScene::OnModeUpdate(float dt, GameContext& gameContext)
 
 bool AdvanceGamePlayScene::IsModeSelectingTarget() const
 {
-    return m_skillManager.IsDestroySelecting() || m_skillManager.IsReviveSelecting();
+    return /*m_skillManager.IsDestroySelecting() ||*/ m_skillManager.IsReviveSelecting();
 }
 
 void AdvanceGamePlayScene::OnModeGridClicked(int gridX, int gridY)
 {
-    if (m_skillManager.IsDestroySelecting())
+   /* if (m_skillManager.IsDestroySelecting())
     {
         if (gridX >= 0 && gridX < DiceBattleGame::BOARD_WIDTH && gridY >= 0 && gridY < DiceBattleGame::BOARD_HEIGHT)
             m_skillManager.ExecuteDestroySkill(gridX, gridY, this, m_gameLogic);
-    }
-    else if (m_skillManager.IsReviveSelecting())
+    }*/
+    if (m_skillManager.IsReviveSelecting())
     {
         if (gridX >= 0 && gridX < DiceBattleGame::BOARD_WIDTH && (gridY == 6 || gridY == 7))
             m_skillManager.ExecuteReviveSkill(gridX, gridY, this, m_gameLogic);
@@ -92,9 +92,9 @@ void AdvanceGamePlayScene::OnModeRender2D(ID3D11DeviceContext* context, float sc
     auto& debugRenderer = gameContext.debugRenderer;
     debugRenderer.DrawText({screenWidth - 210.0f, 10.0f}, L"MODE: ADVANCE");
 
-    if (m_skillManager.IsDestroySelecting())
-        debugRenderer.DrawText({10.0f, 35.0f}, L"破壊する相手の駒を選択してください（ESCでキャンセル）");
-    else if (m_skillManager.IsReviveSelecting())
+   /* if (m_skillManager.IsDestroySelecting())
+        debugRenderer.DrawText({10.0f, 35.0f}, L"破壊する相手の駒を選択してください（ESCでキャンセル）");*/
+    if (m_skillManager.IsReviveSelecting())
         debugRenderer.DrawText({10.0f, 35.0f}, L"下2行の空きマスを選択して駒を蘇生してください（ESCでキャンセル）");
 
     // 重複ダイス描画（2倍移動）
@@ -184,9 +184,9 @@ void AdvanceGamePlayScene::OnModeRender2D(ID3D11DeviceContext* context, float sc
         Vector4 overlayColor(0, 0, 0, 0);
         if (card.isUsed || (isReviveSkill && !hasDead) || (isReRollSkill && !canReRoll))
             overlayColor = Vector4(0.0f, 0.0f, 0.0f, 0.65f);
-        else if ((isReviveSkill && m_skillManager.IsReviveSelecting()) ||
+       /* else if ((isReviveSkill && m_skillManager.IsReviveSelecting()) ||
                  (card.type == SkillType::Destroy && m_skillManager.IsDestroySelecting()))
-            overlayColor = Vector4(1.0f, 0.2f, 1.0f, 0.3f);
+            overlayColor = Vector4(1.0f, 0.2f, 1.0f, 0.3f);*/
 
         if (overlayColor.w > 0.0f)
         {

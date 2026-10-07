@@ -242,7 +242,7 @@ void Game::CreateDeviceDependentResources()
     // TODO: Initialize device dependent objects here (independent of window size).
     
     // デバッグ用の描画セットの作成
-    m_debugRenderer = std::make_unique<Imase::DebugRenderer>(device, context, L"Resources/Font/JapaneseFont_18.spritefont");
+    m_debugRenderer = std::make_unique<Imase::DebugRenderer>(device, context, L"Resources/Font/myfile.spritefont");
 
     // コモンステートの作成
     m_states = std::make_unique<CommonStates>(device);

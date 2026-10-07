@@ -15,12 +15,11 @@ void GameLogManager::Initialize(ID3D11Device* device, ID3D11DeviceContext* conte
 void GameLogManager::AddLog(const std::wstring& message)
 {
     m_logs.push_back(message);
-    if (m_logs.size() > 50) // 最大ログ保持数
-    {
-        m_logs.erase(m_logs.begin());
-    }
-}
 
+    int maxVisible = 10;
+  
+    m_scrollOffset = std::max(0, static_cast<int>(m_logs.size()) - maxVisible);
+}
 void GameLogManager::Update(const DirectX::Mouse::State& mouseState, float screenWidth, float screenHeight)
 {
     // 右上にログボタンを配置（幅 80px, 高さ 30px）
@@ -35,8 +34,39 @@ void GameLogManager::Update(const DirectX::Mouse::State& mouseState, float scree
     // マウスカーソルがボタン領域内にあるか判定
     m_isButtonHovered = (mouseState.x >= m_logButtonRect.left && mouseState.x <= m_logButtonRect.right &&
                          mouseState.y >= m_logButtonRect.top && mouseState.y <= m_logButtonRect.bottom);
-}
 
+    if (m_showLogWindow)
+    {
+        static int lastScrollWheel = 0;
+        int scrollDelta = mouseState.scrollWheelValue - lastScrollWheel;
+        lastScrollWheel = mouseState.scrollWheelValue;
+
+        if (scrollDelta != 0)
+        {
+            // ホイール1ノッチの移動量（感度調整：1〜3行分動かしたい場合は適宜調整）
+            int step = 1;
+
+            if (scrollDelta > 0)
+            {
+                m_scrollOffset -= step; // 上回転：過去（上）のログへ
+            }
+            else if (scrollDelta < 0)
+            {
+                m_scrollOffset += step; // 下回転：最新（下）のログへ
+            }
+
+            // ★ 最大スクロール位置は「全体のログ数 - 表示可能行数(10)」
+            int maxVisible = 10;
+            int maxOffset = std::max(0, static_cast<int>(m_logs.size()) - maxVisible);
+
+            // 範囲の制限（クランプ）
+            if (m_scrollOffset < 0)
+                m_scrollOffset = 0;
+            if (m_scrollOffset > maxOffset)
+                m_scrollOffset = maxOffset;
+        }
+    }
+}
 void GameLogManager::ToggleWindow()
 {
     m_showLogWindow = !m_showLogWindow;
@@ -51,6 +81,8 @@ void GameLogManager::Render(ID3D11DeviceContext* context, CommonStates& states, 
                             PrimitiveBatch<VertexPositionColor>* batchColor, BasicEffect* effectColor,
                             float screenWidth, float screenHeight)
 {
+
+  
     // --- ポインタチェック (NULL 事故防止) ---
     if (batchColor != nullptr && effectColor != nullptr)
     {
@@ -125,7 +157,7 @@ void GameLogManager::Render(ID3D11DeviceContext* context, CommonStates& states, 
     debugRenderer.DrawText(Vector2((float)m_logButtonRect.left + 22.0f, (float)m_logButtonRect.top + 5.0f),
                            Colors::White, L"log");
 
-    if (m_showLogWindow)
+    /*if (m_showLogWindow)
     {
         float winX = screenWidth - 400.0f - 10.0f;
         float startY = 90.0f;
@@ -133,6 +165,22 @@ void GameLogManager::Render(ID3D11DeviceContext* context, CommonStates& states, 
         int startIdx = std::max(0, static_cast<int>(m_logs.size()) - maxVisible);
 
         for (size_t i = startIdx; i < m_logs.size(); ++i)
+        {
+            float lineY = startY + (i - startIdx) * 26.0f;
+            debugRenderer.DrawText(Vector2(winX + 15.0f, lineY), Colors::Yellow, m_logs[i]);
+        }
+    }*/
+    if (m_showLogWindow)
+    {
+        float winX = screenWidth - 400.0f - 10.0f;
+        float startY = 90.0f;
+        int maxVisible = 10; // ウィンドウ内に表示する行数
+
+        // ★ m_scrollOffset を先頭（1行目）の位置として使用する
+        int startIdx = m_scrollOffset;
+        int endIdx = std::min(static_cast<int>(m_logs.size()), startIdx + maxVisible);
+
+        for (int i = startIdx; i < endIdx; ++i)
         {
             float lineY = startY + (i - startIdx) * 26.0f;
             debugRenderer.DrawText(Vector2(winX + 15.0f, lineY), Colors::Yellow, m_logs[i]);

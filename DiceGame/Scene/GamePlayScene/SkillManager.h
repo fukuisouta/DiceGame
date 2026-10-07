@@ -14,11 +14,11 @@ class DiceBattleGame;
 
 enum class SkillType
 {
-    Destroy,
+    //Destroy,
     ReRoll,
     Shield,
     Revive,
-    Earthquake,
+    //Earthquake,
     Freeze,
     DoubleRoll
 };
@@ -46,9 +46,9 @@ public:
 
     void ProcessPlayerSkillClick(SkillCard& card, GamePlaySceneBase* scene, DiceBattleGame& gameLogic,
                                  bool hasMovedThisTurn);
-    void ExecuteDestroySkill(int targetX, int targetY, GamePlaySceneBase* scene, DiceBattleGame& gameLogic);
+    //void ExecuteDestroySkill(int targetX, int targetY, GamePlaySceneBase* scene, DiceBattleGame& gameLogic);
     void ExecuteReviveSkill(int targetX, int targetY, GamePlaySceneBase* scene, DiceBattleGame& gameLogic);
-    void ExecuteEarthquakeSkill(GamePlaySceneBase* scene, DiceBattleGame& gameLogic);
+    //void ExecuteEarthquakeSkill(GamePlaySceneBase* scene, DiceBattleGame& gameLogic);
     void ProcessAISkillLogic(float dt, GamePlaySceneBase* scene, DiceBattleGame& gameLogic, bool hasMovedThisTurn);
 
     // ゲッター / セッター
@@ -66,14 +66,14 @@ public:
         return m_aiHandCards;
     }
 
-    bool IsDestroySelecting() const
-    {
-        return m_isDestroySelecting;
-    }
-    void SetDestroySelecting(bool val)
-    {
-        m_isDestroySelecting = val;
-    }
+    //bool IsDestroySelecting() const
+    //{
+    //    return m_isDestroySelecting;
+    //}
+    //void SetDestroySelecting(bool val)
+    //{
+    //    m_isDestroySelecting = val;
+    //}
 
     bool IsReviveSelecting() const
     {
@@ -107,7 +107,7 @@ private:
     std::array<SkillCard, 3> m_aiHandCards;
     std::unordered_map<SkillType, Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>> m_cardTextures;
 
-    bool m_isDestroySelecting = false;
+    //bool m_isDestroySelecting = false;
     bool m_isReviveSelecting = false;
     bool m_isFreezeNextTurn = false;
     bool m_isDoubleRollActive = false;

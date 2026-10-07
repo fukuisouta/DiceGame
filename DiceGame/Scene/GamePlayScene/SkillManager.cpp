@@ -10,16 +10,16 @@ using namespace DirectX::SimpleMath;
 
 void SkillManager::Initialize(ID3D11Device* device)
 {
-    CreateWICTextureFromFile(device, L"Resources/Textures/破壊.png", nullptr,
-                             m_cardTextures[SkillType::Destroy].ReleaseAndGetAddressOf());
+    /*CreateWICTextureFromFile(device, L"Resources/Textures/破壊.png", nullptr,
+                             m_cardTextures[SkillType::Destroy].ReleaseAndGetAddressOf());*/
     CreateWICTextureFromFile(device, L"Resources/Textures/再振.png", nullptr,
                              m_cardTextures[SkillType::ReRoll].ReleaseAndGetAddressOf());
     CreateWICTextureFromFile(device, L"Resources/Textures/守護.png", nullptr,
                              m_cardTextures[SkillType::Shield].ReleaseAndGetAddressOf());
     CreateWICTextureFromFile(device, L"Resources/Textures/蘇生.png", nullptr,
                              m_cardTextures[SkillType::Revive].ReleaseAndGetAddressOf());
-    CreateWICTextureFromFile(device, L"Resources/Textures/地震.png", nullptr,
-                             m_cardTextures[SkillType::Earthquake].ReleaseAndGetAddressOf());
+   /* CreateWICTextureFromFile(device, L"Resources/Textures/地震.png", nullptr,
+                             m_cardTextures[SkillType::Earthquake].ReleaseAndGetAddressOf());*/
     CreateWICTextureFromFile(device, L"Resources/Textures/凍結.png", nullptr,
                              m_cardTextures[SkillType::Freeze].ReleaseAndGetAddressOf());
     CreateWICTextureFromFile(device, L"Resources/Textures/倍化.png", nullptr,
@@ -70,22 +70,22 @@ void SkillManager::InitializeHandCards()
                                           false,
                                           Vector4(1, 1, 1, 1),
                                           m_cardTextures[SkillType::DoubleRoll]},
-                                         {SkillType::Destroy,
+                                       /*  {SkillType::Destroy,
                                           L"Destroy",
                                           L"相手の駒を1つ選んで破壊する",
                                           {0, 0, 0, 0},
                                           false,
                                           false,
                                           Vector4(1, 1, 1, 1),
-                                          m_cardTextures[SkillType::Destroy]},
-                                         {SkillType::Earthquake,
+                                          m_cardTextures[SkillType::Destroy]},*/
+                                        /* {SkillType::Earthquake,
                                           L"Earthquake",
                                           L"盤上のすべての駒の出目をランダムに変化させる",
                                           {0, 0, 0, 0},
                                           false,
                                           false,
                                           Vector4(1, 1, 1, 1),
-                                          m_cardTextures[SkillType::Earthquake]}};
+                                          m_cardTextures[SkillType::Earthquake]}*/};
 
     static std::mt19937 rng(std::random_device{}());
 
@@ -99,7 +99,7 @@ void SkillManager::InitializeHandCards()
 
     m_isFreezeNextTurn = false;
     m_isReviveSelecting = false;
-    m_isDestroySelecting = false;
+    //m_isDestroySelecting = false;
     m_isDoubleRollActive = false;
     m_aiSkillTimer = 0.0f;
 }
@@ -109,11 +109,11 @@ void SkillManager::ProcessPlayerSkillClick(SkillCard& card, GamePlaySceneBase* s
 {
     switch (card.type)
     {
-        case SkillType::Destroy:
+       /* case SkillType::Destroy:
             m_isDestroySelecting = !m_isDestroySelecting;
             m_isReviveSelecting = false;
             scene->AddLog(L"スキル「破壊」の発動対象を選択中");
-            break;
+            break;*/
         case SkillType::ReRoll:
             card.isUsed = true;
             m_isDoubleRollActive = false;
@@ -131,11 +131,11 @@ void SkillManager::ProcessPlayerSkillClick(SkillCard& card, GamePlaySceneBase* s
                 scene->AddLog(L"スキル「倍化」を使用！移動数が2倍になりました");
             }
             break;
-        case SkillType::Earthquake:
+     /*   case SkillType::Earthquake:
             card.isUsed = true;
             ExecuteEarthquakeSkill(scene, gameLogic);
             scene->AddLog(L"スキル「地震」を使用！全駒の出目を変更しました");
-            break;
+            break;*/
         case SkillType::Freeze:
             card.isUsed = true;
             m_isFreezeNextTurn = true;
@@ -148,30 +148,30 @@ void SkillManager::ProcessPlayerSkillClick(SkillCard& card, GamePlaySceneBase* s
             break;
         case SkillType::Revive:
             m_isReviveSelecting = !m_isReviveSelecting;
-            m_isDestroySelecting = false;
+            //m_isDestroySelecting = false;
             scene->AddLog(L"スキル「蘇生」の発動位置を選択中");
             break;
     }
 }
 
-void SkillManager::ExecuteDestroySkill(int targetX, int targetY, GamePlaySceneBase* scene, DiceBattleGame& gameLogic)
-{
-    const auto* targetPiece = gameLogic.GetPieceAt(targetX, targetY);
-    if (targetPiece && targetPiece->owner == PlayerType::Player2)
-    {
-        gameLogic.RemovePieceAt(targetX, targetY);
-        for (auto& card : m_handCards)
-        {
-            if (card.type == SkillType::Destroy)
-            {
-                card.isUsed = true;
-                break;
-            }
-        }
-        m_isDestroySelecting = false;
-        scene->TriggerTurnNotice(L"相手の駒を破壊した！", 1.5f);
-    }
-}
+//void SkillManager::ExecuteDestroySkill(int targetX, int targetY, GamePlaySceneBase* scene, DiceBattleGame& gameLogic)
+//{
+//    const auto* targetPiece = gameLogic.GetPieceAt(targetX, targetY);
+//    if (targetPiece && targetPiece->owner == PlayerType::Player2)
+//    {
+//        gameLogic.RemovePieceAt(targetX, targetY);
+//        for (auto& card : m_handCards)
+//        {
+//            if (card.type == SkillType::Destroy)
+//            {
+//                card.isUsed = true;
+//                break;
+//            }
+//        }
+//        m_isDestroySelecting = false;
+//        scene->TriggerTurnNotice(L"相手の駒を破壊した！", 1.5f);
+//    }
+//}
 
 void SkillManager::ExecuteReviveSkill(int targetX, int targetY, GamePlaySceneBase* scene, DiceBattleGame& gameLogic)
 {
@@ -190,24 +190,24 @@ void SkillManager::ExecuteReviveSkill(int targetX, int targetY, GamePlaySceneBas
     }
 }
 
-void SkillManager::ExecuteEarthquakeSkill(GamePlaySceneBase* scene, DiceBattleGame& gameLogic)
-{
-    static std::mt19937 rng(std::random_device{}());
-    std::uniform_real_distribution<float> dist(-XM_PI, XM_PI);
-
-    auto& pieces = const_cast<std::vector<BoardPiece>&>(gameLogic.GetPieces());
-    for (auto& piece : pieces)
-    {
-        if (piece.isActive && piece.diceInstance && piece.type != PieceType::King)
-        {
-            Quaternion randomRot = Quaternion::CreateFromYawPitchRoll(dist(rng), dist(rng), dist(rng));
-            piece.startRot = piece.diceInstance->GetRotation();
-            piece.targetRot = randomRot;
-            piece.rotProgress = 0.0f;
-        }
-    }
-    scene->TriggerTurnNotice(L"地震発生！出目が変化した！", 1.8f);
-}
+//void SkillManager::ExecuteEarthquakeSkill(GamePlaySceneBase* scene, DiceBattleGame& gameLogic)
+//{
+//    static std::mt19937 rng(std::random_device{}());
+//    std::uniform_real_distribution<float> dist(-XM_PI, XM_PI);
+//
+//    auto& pieces = const_cast<std::vector<BoardPiece>&>(gameLogic.GetPieces());
+//    for (auto& piece : pieces)
+//    {
+//        if (piece.isActive && piece.diceInstance && piece.type != PieceType::King)
+//        {
+//            Quaternion randomRot = Quaternion::CreateFromYawPitchRoll(dist(rng), dist(rng), dist(rng));
+//            piece.startRot = piece.diceInstance->GetRotation();
+//            piece.targetRot = randomRot;
+//            piece.rotProgress = 0.0f;
+//        }
+//    }
+//    scene->TriggerTurnNotice(L"地震発生！出目が変化した！", 1.8f);
+//}
 
 void SkillManager::ProcessAISkillLogic(float dt, GamePlaySceneBase* scene, DiceBattleGame& gameLogic,
                                        bool hasMovedThisTurn)
@@ -226,7 +226,7 @@ void SkillManager::ProcessAISkillLogic(float dt, GamePlaySceneBase* scene, DiceB
 
         bool used = false;
         switch (card.type)
-        {
+        {/*
             case SkillType::Destroy:
             {
                 for (const auto& piece : gameLogic.GetPieces())
@@ -241,7 +241,7 @@ void SkillManager::ProcessAISkillLogic(float dt, GamePlaySceneBase* scene, DiceB
                     }
                 }
                 break;
-            }
+            }*/
             case SkillType::ReRoll:
             {
                 if (gameLogic.GetRemainingSteps() <= 2 && !hasMovedThisTurn)
@@ -304,14 +304,14 @@ void SkillManager::ProcessAISkillLogic(float dt, GamePlaySceneBase* scene, DiceB
                 }
                 break;
             }
-            case SkillType::Earthquake:
+           /* case SkillType::Earthquake:
             {
                 ExecuteEarthquakeSkill(scene, gameLogic);
                 used = true;
                 scene->TriggerTurnNotice(L"CPUがスキル「地震」を使用！", 1.5f);
                 scene->AddLog(L"CPUがスキル「地震」を発動しました");
                 break;
-            }
+            }*/
         }
 
         if (used)

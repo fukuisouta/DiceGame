@@ -186,9 +186,9 @@ void GamePlaySceneBase::ExecuteMove(int fromX, int fromY, int toX, int toY)
 
         std::wstring actor = (currentTurn == PlayerType::Player1) ? L"あなた" : L"CPU";
         if (isEnemyDefeated)
-            m_logManager.AddLogFormat(L"%sがコマをいどうし、あいてのこまをげきは！", actor.c_str());
+            m_logManager.AddLogFormat(L"{}がコマを移動し、あいてのこまを撃破！", actor.c_str());
         else
-            m_logManager.AddLogFormat(L"%sがコマを (%d, %d) へいどう", actor.c_str(), toX, toY);
+            m_logManager.AddLogFormat(L"{}がコマを ({}, {}) へ移動", actor.c_str(), toX, toY);
     }
 }
 
@@ -461,7 +461,7 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
 
     Imase::DebugRenderer& debugRenderer = gameContext.debugRenderer;
     const wchar_t* playerStr = (m_gameLogic.GetCurrentTurn() == PlayerType::Player1) ? L"プレイヤー 1（あなた）"
-                                                                                     : L"プレイヤー 2（CPUしこうちゅう...）";
+                                                                                     : L"プレイヤー 2（CPU思考中...）";
     wchar_t turnStr[128];
     swprintf_s(turnStr, L"ターン: %s", playerStr);
     debugRenderer.DrawText({10.0f, 10.0f}, turnStr);
@@ -686,7 +686,7 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
 
         const wchar_t* winStr = (m_winnerPlayer == PlayerType::Player1) ? L"YOU WIN!" : L"YOU LOSE...";
         gameContext.debugRenderer.DrawText({dialogX + 130.0f, dialogY + 30.0f}, winStr);
-        gameContext.debugRenderer.DrawText({btnX + 65.0f, btnY1 + 12.0f}, L"りとらい");
+        gameContext.debugRenderer.DrawText({btnX + 65.0f, btnY1 + 12.0f}, L"再戦");
         gameContext.debugRenderer.DrawText({btnX + 55.0f, btnY2 + 12.0f}, L"タイトルへ");
     }
 }

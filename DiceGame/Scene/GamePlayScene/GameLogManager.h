@@ -72,4 +72,5 @@ private:
     bool m_showLogWindow = false;
     bool m_isButtonHovered = false;
     RECT m_logButtonRect = {0, 0, 0, 0};
+    int m_scrollOffset = 0;
 };
