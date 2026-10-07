@@ -1,0 +1,66 @@
+{
+    "objects": [
+        {
+            "collisionScale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "modelName": "Board.cmo",
+            "position": [
+                0.0,
+                -1.399999976158142,
+                0.0
+            ],
+            "rigidBody": {
+                "damping": 0.9800000190734863,
+                "enabled": false,
+                "isStatic": false,
+                "mass": 1.0,
+                "useGravity": true
+            },
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                18.0,
+                1.0,
+                18.0
+            ],
+            "tag": "Default"
+        },
+        {
+            "collisionScale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "modelName": "SkyDoom.cmo",
+            "position": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "rigidBody": {
+                "damping": 0.9800000190734863,
+                "enabled": false,
+                "isStatic": false,
+                "mass": 1.0,
+                "useGravity": true
+            },
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                79.0,
+                63.25,
+                55.54999923706055
+            ],
+            "tag": "Default"
+        }
+    ]
+}

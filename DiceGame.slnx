@@ -1,0 +1,7 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="DiceGame/DiceGame.vcxproj" Id="e1243215-95a8-4f22-a58e-ff701ff23f78" />
+</Solution>
