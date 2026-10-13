@@ -123,7 +123,7 @@ void GamePlaySceneBase::OnEnter(GameContext& gameContext)
     // ★ 矢印ボタン画像のロード
     DirectX::CreateWICTextureFromFile(device, L"Resources/Textures/Flont.png", nullptr,
                                       m_arrowUpTexture.ReleaseAndGetAddressOf());
-    DirectX::CreateWICTextureFromFile(device, L"Resources/Textures/Buck.png", nullptr,
+    DirectX::CreateWICTextureFromFile(device, L"Resources/Textures/Back.png", nullptr,
                                       m_arrowDownTexture.ReleaseAndGetAddressOf());
     DirectX::CreateWICTextureFromFile(device, L"Resources/Textures/Left.png", nullptr,
                                       m_arrowLeftTexture.ReleaseAndGetAddressOf());
@@ -149,7 +149,7 @@ void GamePlaySceneBase::OnEnter(GameContext& gameContext)
     // 派生クラスの初期化呼出
     OnModeEnter(gameContext);
 
-    TriggerTurnNotice(L"あなたのターン！", 1.8f);
+    TriggerTurnNotice(L"あなたのターン", 1.8f);
 }
 
 void GamePlaySceneBase::LoadSceneFromJson(GameContext& gameContext, const std::string& filePath)
@@ -218,7 +218,7 @@ void GamePlaySceneBase::ExecuteMove(int fromX, int fromY, int toX, int toY)
             else
                 m_gameLogic.SetRemainingSteps(remaining);
 
-            TriggerTurnNotice(L"相手の「守護」により防がれた！", 1.2f);
+            TriggerTurnNotice(L"相手の「守護」により防がれた", 1.2f);
             return;
         }
     }
@@ -233,14 +233,16 @@ void GamePlaySceneBase::ExecuteMove(int fromX, int fromY, int toX, int toY)
         m_cursorX = toX;
         m_cursorY = toY;
 
-        std::wstring actor = (currentTurn == PlayerType::Player1) ? L"あなた" : L"CPU";
+        // 主語の判定（プレイヤー1＝あなた、プレイヤー2＝CPU）
+        const wchar_t* actor = (currentTurn == PlayerType::Player1) ? L"あなた" : L"あいて(CPU)";
+        const wchar_t* targetName = (currentTurn == PlayerType::Player1) ? L"あいての" : L"あなたの";
+
         if (isEnemyDefeated)
-            m_logManager.AddLogFormat(L"{}がコマを移動し、あいてのこまを撃破！", actor.c_str());
+            m_logManager.AddLogFormat(L"{}がコマを移動し、{}こまを撃破", actor, targetName);
         else
-            m_logManager.AddLogFormat(L"{}がコマを ({}, {}) へ移動", actor.c_str(), toX, toY);
+            m_logManager.AddLogFormat(L"{}がコマを ({}, {}) へ移動", actor, toX, toY);
     }
 }
-
 void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController, GameContext& gameContext)
 {
     float dt = static_cast<float>(gameContext.timer.GetElapsedSeconds());
@@ -402,10 +404,19 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
     if (m_gameLogic.IsGameOver())
     {
         m_isGameOver = true;
+        m_isDraw = m_gameLogic.IsDraw(); // ★ 引き分け状態を取得
         m_gameOverSelectIndex = 0;
         m_winnerPlayer = m_gameLogic.GetWinner();
-        AddLog(m_winnerPlayer == PlayerType::Player1 ? L"ゲームエンド：あなたのしょうり！"
-                                                     : L"ゲームエンド：CPUのしょうり");
+
+        if (m_isDraw)
+        {
+            AddLog(L"ゲームエンド：引き分け（DRAW）です");
+        }
+        else
+        {
+            AddLog(m_winnerPlayer == PlayerType::Player1 ? L"ゲームエンド：あなたのしょうり"
+                                                         : L"ゲームエンド：CPUのしょうり");
+        }
         return;
     }
 
@@ -428,13 +439,26 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
         m_hasMovedThisTurn = false;
         m_gameLogic.SetRemainingSteps(0);
 
-        TriggerTurnNotice(currentTurn == PlayerType::Player1 ? L"あなたのターン！" : L"あいてのターン！", 1.5f);
+        TriggerTurnNotice(currentTurn == PlayerType::Player1 ? L"あなたのターン" : L"あいてのターン", 1.5f);
     }
 
-    if (m_gameLogic.GetCurrentTurn() == PlayerType::Player2)
+   if (m_gameLogic.GetCurrentTurn() == PlayerType::Player2)
     {
         m_gameLogic.SetPlayerShield(PlayerType::Player2, false);
+
+        // 移動前の残り歩数を記録
+        int stepsBefore = m_gameLogic.GetRemainingSteps();
+
+        // CPUの思考・移動実行
         m_ai.Update(m_gameLogic, dt);
+
+        // 歩数が減った＝CPUが移動に成功した場合にログを出力
+        if (m_gameLogic.GetRemainingSteps() < stepsBefore && stepsBefore > 0)
+        {
+            // 移動後のカーソル位置（または選択位置）から移動ログを出力
+            const wchar_t* actor = L"あいて(CPU)";
+            AddLog(L"あいて(CPU)がコマを移動しました");
+        }
     }
 
     bool isPlayerTurn = (m_gameLogic.GetCurrentTurn() == PlayerType::Player1);
@@ -698,31 +722,9 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
         DrawTextureButton(m_diceCheckButtonTexture.Get(), m_btnDiceCheckRect, m_isDiceCheckBtnHovered);
         DrawTextureButton(m_logButtonTexture.Get(), logRect, m_logManager.IsButtonHovered());
     }
-   //// LOGボタン画像の描画（他のUIボタンと同じ描画方式に統一）
-   // if (!m_diceViewer.IsOpen() && !m_isGameOver && m_logButtonTexture)
-   // {
-   //     const RECT& logRect = m_logManager.GetButtonRect();
-   //     float btnX = static_cast<float>(logRect.left);
-   //     float btnY = static_cast<float>(logRect.top);
-   //     float bWidth = static_cast<float>(logRect.right - logRect.left);
-   //     float bHeight = static_cast<float>(logRect.bottom - logRect.top);
-
-   //     context->IASetInputLayout(inputLayout.Get());
-   //     m_effect->SetTexture(m_logButtonTexture.Get());
-   //     m_effect->Apply(context);
-
-   //     m_primitiveBatch->Begin();
-   //     VertexPositionTexture v0(Vector3(btnX, btnY, 0.0f), Vector2(0.0f, 0.0f));
-   //     VertexPositionTexture v1(Vector3(btnX + bWidth, btnY, 0.0f), Vector2(1.0f, 0.0f));
-   //     VertexPositionTexture v2(Vector3(btnX, btnY + bHeight, 0.0f), Vector2(0.0f, 1.0f));
-   //     VertexPositionTexture v3(Vector3(btnX + bWidth, btnY + bHeight, 0.0f), Vector2(1.0f, 1.0f));
-   //     m_primitiveBatch->DrawTriangle(v0, v1, v2);
-   //     m_primitiveBatch->DrawTriangle(v2, v1, v3);
-   //     m_primitiveBatch->End();
-   // }
-
-   // ==========================================
-    // ★ 矢印ボタン描画（画像のアスペクト比を維持）
+  
+ // ==========================================
+    // ★ 矢印ボタン描画（正方形アスペクト比で描画）
     // ==========================================
     bool canControlPiece = (m_gameLogic.GetCurrentTurn() == PlayerType::Player1) && !m_gameLogic.IsWaitingForRoll() &&
                            (m_gameLogic.GetRemainingSteps() > 0) && !m_gameLogic.IsAnyPieceMoving();
@@ -734,7 +736,7 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
 
         bool isSelected = (m_selectedX != -1);
 
-        // 幅(w) と 高さ(h) を個別に受け取って描画するラムダ式
+        // 幅(w) と 高さ(h) を受け取って描画するラムダ式
         auto DrawArrowButton = [&](ID3D11ShaderResourceView* tex, bool isHovered, float baseW, float baseH, float cx,
                                    float cy, RECT& outRect)
         {
@@ -765,25 +767,21 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
             }
         };
 
-        // 上下用サイズ
-        float verticalW = 75.0f;
-        float verticalH = 140.0f;
+        // ★ ボタンサイズを正方形(1:1)に統一して歪みを解消
+        float buttonSize = 85.0f;
+        float offsetDistance = buttonSize * 0.85f + spacing;
 
-        // 左右用サイズ
-        float horizontalW = 140.0f;
-        float horizontalH = 75.0f;
+        DrawArrowButton(m_arrowUpTexture.Get(), m_isUpHovered, buttonSize, buttonSize, arrowCenterX,
+                        arrowCenterY - offsetDistance, m_btnUpRect);
 
-        float offsetVert = verticalH * 0.5f + spacing;
-        float offsetHoriz = horizontalW * 0.5f + spacing;
+        DrawArrowButton(m_arrowDownTexture.Get(), m_isDownHovered, buttonSize, buttonSize, arrowCenterX,
+                        arrowCenterY + offsetDistance, m_btnDownRect);
 
-        DrawArrowButton(m_arrowUpTexture.Get(), m_isUpHovered, verticalW, verticalH, arrowCenterX,
-                        arrowCenterY - offsetVert, m_btnUpRect);
-        DrawArrowButton(m_arrowDownTexture.Get(), m_isDownHovered, verticalW, verticalH, arrowCenterX,
-                        arrowCenterY + offsetVert, m_btnDownRect);
-        DrawArrowButton(m_arrowLeftTexture.Get(), m_isLeftHovered, horizontalW, horizontalH, arrowCenterX - offsetHoriz,
-                        arrowCenterY, m_btnLeftRect);
-        DrawArrowButton(m_arrowRightTexture.Get(), m_isRightHovered, horizontalW, horizontalH,
-                        arrowCenterX + offsetHoriz, arrowCenterY, m_btnRightRect);
+        DrawArrowButton(m_arrowLeftTexture.Get(), m_isLeftHovered, buttonSize, buttonSize,
+                        arrowCenterX - offsetDistance, arrowCenterY, m_btnLeftRect);
+
+        DrawArrowButton(m_arrowRightTexture.Get(), m_isRightHovered, buttonSize, buttonSize,
+                        arrowCenterX + offsetDistance, arrowCenterY, m_btnRightRect);
     }
 
     // ダイスボタン
@@ -835,38 +833,6 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
 
         gameContext.debugRenderer.DrawText({textX, textY}, m_turnNoticeText.c_str());
     }
-
-    //// ==========================================
-    //// ★ 「ダイス確認」ボタン（画像テクスチャ描画）
-    //// ==========================================
-    //if (!m_diceViewer.IsOpen() && !m_isGameOver && m_diceCheckButtonTexture)
-    //{
-    //    float baseWidth = 280.0f;
-    //    float baseHeight = 160.0f;
-    //    float scale = m_isDiceCheckBtnHovered ? 1.05f : 1.0f;
-
-    //    float bWidth = baseWidth * scale;
-    //    float bHeight = baseHeight * scale;
-
-    //    float btnX = 20.0f - (bWidth - baseWidth) * 0.5f;
-    //    float btnY = 20.0f - (bHeight - baseHeight) * 0.5f;
-
-    //    m_btnDiceCheckRect = {static_cast<LONG>(btnX), static_cast<LONG>(btnY), static_cast<LONG>(btnX + bWidth),
-    //                          static_cast<LONG>(btnY + bHeight)};
-
-    //    context->IASetInputLayout(inputLayout.Get());
-    //    m_effect->SetTexture(m_diceCheckButtonTexture.Get());
-    //    m_effect->Apply(context);
-
-    //    m_primitiveBatch->Begin();
-    //    VertexPositionTexture v0(Vector3(btnX, btnY, 0.0f), Vector2(0.0f, 0.0f));
-    //    VertexPositionTexture v1(Vector3(btnX + bWidth, btnY, 0.0f), Vector2(1.0f, 0.0f));
-    //    VertexPositionTexture v2(Vector3(btnX, btnY + bHeight, 0.0f), Vector2(0.0f, 1.0f));
-    //    VertexPositionTexture v3(Vector3(btnX + bWidth, btnY + bHeight, 0.0f), Vector2(1.0f, 1.0f));
-    //    m_primitiveBatch->DrawTriangle(v0, v1, v2);
-    //    m_primitiveBatch->DrawTriangle(v2, v1, v3);
-    //    m_primitiveBatch->End();
-    //}
 
     // ==========================================
     // ★ ダイスチェックモーダル画面
@@ -977,13 +943,30 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
             m_colorPrimitiveBatch->DrawTriangle(v2, v1, v3);
         };
 
-        DrawBox(btnX, btnY1, btnW, btnH, col1);
+       DrawBox(btnX, btnY1, btnW, btnH, col1);
         DrawBox(btnX, btnY2, btnW, btnH, col2);
         m_colorPrimitiveBatch->End();
 
-        const wchar_t* winStr = (m_winnerPlayer == PlayerType::Player1) ? L"YOU WIN!" : L"YOU LOSE...";
-        gameContext.debugRenderer.DrawText({dialogX + 130.0f, dialogY + 30.0f}, winStr);
+        // ★ テキストの判定を変更
+        const wchar_t* resultStr = L"";
+        if (m_isDraw)
+        {
+            resultStr = L"DRAW";
+        }
+        else if (m_winnerPlayer == PlayerType::Player1)
+        {
+            resultStr = L"YOU WIN!";
+        }
+        else
+        {
+            resultStr = L"YOU LOSE...";
+        }
+
+        // 表示位置も少し調整（DRAWなどの文字長さに応じて）
+        float textOffsetX = m_isDraw ? 150.0f : 130.0f;
+        gameContext.debugRenderer.DrawText({dialogX + textOffsetX, dialogY + 30.0f}, resultStr);
         gameContext.debugRenderer.DrawText({btnX + 65.0f, btnY1 + 12.0f}, L"再戦");
         gameContext.debugRenderer.DrawText({btnX + 55.0f, btnY2 + 12.0f}, L"タイトルへ");
     }
+    
 }

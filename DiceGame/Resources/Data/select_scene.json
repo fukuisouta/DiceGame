@@ -1,3 +1,159 @@
 {
-    "objects": []
+    "objects": [
+        {
+            "collisionScale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "modelName": "original.png",
+            "position": [
+                2.799999952316284,
+                -3.0,
+                0.0
+            ],
+            "rigidBody": {
+                "damping": 0.9800000190734863,
+                "enabled": false,
+                "isStatic": false,
+                "mass": 1.0,
+                "useGravity": true
+            },
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                -2.5,
+                1.5,
+                0.0
+            ],
+            "tag": "original"
+        },
+        {
+            "collisionScale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "modelName": "advance.png",
+            "position": [
+                -3.0,
+                -3.0,
+                0.0
+            ],
+            "rigidBody": {
+                "damping": 0.9800000190734863,
+                "enabled": false,
+                "isStatic": false,
+                "mass": 1.0,
+                "useGravity": true
+            },
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                -2.5,
+                1.5,
+                0.0
+            ],
+            "tag": "advance"
+        },
+        {
+            "collisionScale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "modelName": "SkyDoom.cmo",
+            "position": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "rigidBody": {
+                "damping": 0.9800000190734863,
+                "enabled": false,
+                "isStatic": false,
+                "mass": 1.0,
+                "useGravity": true
+            },
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                100.0,
+                100.0,
+                100.0
+            ],
+            "tag": "Sky"
+        },
+        {
+            "collisionScale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "modelName": "AT.png",
+            "position": [
+                -3.0999999046325684,
+                0.699999988079071,
+                0.0
+            ],
+            "rigidBody": {
+                "damping": 0.9800000190734863,
+                "enabled": false,
+                "isStatic": false,
+                "mass": 1.0,
+                "useGravity": true
+            },
+            "rotation": [
+                12.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                -5.0,
+                6.5,
+                0.20000000298023224
+            ],
+            "tag": "TitleLogo"
+        },
+        {
+            "collisionScale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "modelName": "OT.png",
+            "position": [
+                2.700000047683716,
+                0.6000000238418579,
+                0.0
+            ],
+            "rigidBody": {
+                "damping": 0.9800000190734863,
+                "enabled": false,
+                "isStatic": false,
+                "mass": 1.0,
+                "useGravity": true
+            },
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                -5.0,
+                6.5,
+                0.20000000298023224
+            ],
+            "tag": "TitleLogo"
+        }
+    ]
 }

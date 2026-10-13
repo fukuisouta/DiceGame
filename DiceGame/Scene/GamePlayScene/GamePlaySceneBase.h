@@ -86,6 +86,7 @@ protected:
     float m_cameraDistance = 30.0f;
 
     bool m_isGameOver = false;
+    bool m_isDraw = false;
     PlayerType m_winnerPlayer = PlayerType::Player1;
     int m_gameOverSelectIndex = 0;
     RECT m_retryButtonRect = {0, 0, 0, 0};

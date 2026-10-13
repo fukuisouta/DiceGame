@@ -283,6 +283,7 @@ BoardPiece* DiceBattleGame::GetPieceAt(int x, int y)
 
 bool DiceBattleGame::MovePiece(int fromX, int fromY, int toX, int toY)
 {
+    // --- 前半の判定処理はそのまま ---
     if (m_isGameOver || m_isWaitingForRoll || m_remainingSteps <= 0)
         return false;
 
@@ -331,6 +332,7 @@ bool DiceBattleGame::MovePiece(int fromX, int fromY, int toX, int toY)
         attacker->rotProgress = 0.0f;
     }
 
+    // --- ★ 戦闘処理と移動 ---
     if (targetPiece && targetPiece->owner != m_currentTurn)
     {
         ResolveBattle(*attacker, *targetPiece, toX, toY);
@@ -341,6 +343,15 @@ bool DiceBattleGame::MovePiece(int fromX, int fromY, int toX, int toY)
         attacker->gridY = toY;
     }
 
+    // ★ 移動・戦闘が発生した直後に勝敗・引き分け判定を実行！
+    CheckGameEndConditions();
+
+    // ゲームオーバーになったら歩数やターン切り替えは行わず終了
+    if (m_isGameOver)
+    {
+        return true;
+    }
+
     m_remainingSteps--;
 
     if (m_remainingSteps <= 0)
@@ -348,7 +359,6 @@ bool DiceBattleGame::MovePiece(int fromX, int fromY, int toX, int toY)
         m_currentTurn = (m_currentTurn == PlayerType::Player1) ? PlayerType::Player2 : PlayerType::Player1;
     }
 
-    CheckGameEndConditions();
     return true;
 }
 
@@ -363,10 +373,15 @@ void DiceBattleGame::ResolveBattle(BoardPiece& attacker, BoardPiece& defender, i
         return;
     }
 
+    // ★ キング同士の衝突（相打ち）
     if (attacker.type == PieceType::King && defender.type == PieceType::King)
     {
         RemovePieceAt(attackerX, attackerY);
         RemovePieceAt(targetX, targetY);
+
+        // 即座に引き分け（ゲームオーバー）を確定
+        m_isGameOver = true;
+        m_isDraw = true;
         return;
     }
 
@@ -421,43 +436,77 @@ void DiceBattleGame::ResolveBattle(BoardPiece& attacker, BoardPiece& defender, i
         RemovePieceAt(targetX, targetY);
     }
 }
-
 void DiceBattleGame::CheckGameEndConditions()
 {
+    // すでに ResolveBattle 等で引き分け/ゲームオーバーが確定している場合は維持
+    if (m_isGameOver)
+        return;
+
     bool p1KingAlive = false;
     bool p2KingAlive = false;
 
+    int p1NonKingCount = 0;
+    int p2NonKingCount = 0;
+
     for (const auto& piece : m_pieces)
     {
-        if (piece.isActive && piece.type == PieceType::King)
+        if (!piece.isActive)
+            continue;
+
+        if (piece.owner == PlayerType::Player1)
         {
-            if (piece.owner == PlayerType::Player1)
+            if (piece.type == PieceType::King)
                 p1KingAlive = true;
-            if (piece.owner == PlayerType::Player2)
+            else
+                p1NonKingCount++;
+        }
+        else if (piece.owner == PlayerType::Player2)
+        {
+            if (piece.type == PieceType::King)
                 p2KingAlive = true;
+            else
+                p2NonKingCount++;
         }
     }
 
-    if (!p1KingAlive || !p2KingAlive)
+    // ----------------------------------------------------
+    // 【判定1】引き分け条件
+    // ・両方のキングが死亡（相打ち・衝突など）
+    // ・または、両者ともキングしか残っていない（キング以外のコマが0）
+    // ----------------------------------------------------
+    if ((!p1KingAlive && !p2KingAlive) || (p1KingAlive && p2KingAlive && p1NonKingCount == 0 && p2NonKingCount == 0))
     {
         m_isGameOver = true;
-        if (!p1KingAlive && !p2KingAlive)
-        {
-            m_isDraw = true;
-        }
-        else if (p1KingAlive)
-        {
-            m_isDraw = false;
-            m_winner = PlayerType::Player1;
-        }
-        else if (p2KingAlive)
-        {
-            m_isDraw = false;
-            m_winner = PlayerType::Player2;
-        }
+        m_isDraw = true;
+        return;
+    }
+
+    // ----------------------------------------------------
+    // 【判定2】プレイヤー1の敗北条件
+    // ・キングが倒された
+    // ・または、キング以外のコマ数が0（キングしかコマがない）
+    // ----------------------------------------------------
+    if (!p1KingAlive || p1NonKingCount == 0)
+    {
+        m_isGameOver = true;
+        m_isDraw = false;
+        m_winner = PlayerType::Player2;
+        return;
+    }
+
+    // ----------------------------------------------------
+    // 【判定3】プレイヤー2の敗北条件
+    // ・キングが倒された
+    // ・または、キング以外のコマ数が0（キングしかコマがない）
+    // ----------------------------------------------------
+    if (!p2KingAlive || p2NonKingCount == 0)
+    {
+        m_isGameOver = true;
+        m_isDraw = false;
+        m_winner = PlayerType::Player1;
+        return;
     }
 }
-
 void DiceBattleGame::RemovePieceAt(int x, int y)
 {
     for (auto& piece : m_pieces)

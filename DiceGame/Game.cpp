@@ -77,7 +77,7 @@ void Game::Initialize(HWND window, int width, int height)
     );
 
     // 起動シーンの設定
-    m_sceneManager.SetFirstScene(SceneId::EditorScene, *m_gameContext);
+    m_sceneManager.SetFirstScene(SceneId::TitleScene, *m_gameContext);
 }
 
 #pragma region Frame Update
@@ -242,7 +242,7 @@ void Game::CreateDeviceDependentResources()
     // TODO: Initialize device dependent objects here (independent of window size).
     
     // デバッグ用の描画セットの作成
-    m_debugRenderer = std::make_unique<Imase::DebugRenderer>(device, context, L"Resources/Font/myfile.spritefont");
+    m_debugRenderer = std::make_unique<Imase::DebugRenderer>(device, context, L"Resources/Font/JapaneseFont_18.spritefont");
 
     // コモンステートの作成
     m_states = std::make_unique<CommonStates>(device);

@@ -1,99 +1,202 @@
 #include "pch.h"
 #include "TitleScene.h"
-#include <Mouse.h>
+#include "Framework/SceneSerializer.h"
+#include <algorithm>
 
 using namespace DirectX;
 using namespace DirectX::SimpleMath;
+
+namespace
+{
+    RECT ProjectAABBToScreen(const Vector3& minBounds, const Vector3& maxBounds, const Matrix& view, const Matrix& proj,
+                             float screenWidth, float screenHeight)
+    {
+        Vector3 corners[8] = {
+            Vector3(minBounds.x, minBounds.y, minBounds.z), Vector3(maxBounds.x, minBounds.y, minBounds.z),
+            Vector3(minBounds.x, maxBounds.y, minBounds.z), Vector3(maxBounds.x, maxBounds.y, minBounds.z),
+            Vector3(minBounds.x, minBounds.y, maxBounds.z), Vector3(maxBounds.x, maxBounds.y, maxBounds.z),
+            Vector3(minBounds.x, maxBounds.y, maxBounds.z), Vector3(maxBounds.x, maxBounds.y, maxBounds.z),
+        };
+
+        float minX = screenWidth, minY = screenHeight;
+        float maxX = 0.0f, maxY = 0.0f;
+
+        Matrix viewProj = view * proj;
+
+        for (int i = 0; i < 8; ++i)
+        {
+            Vector4 clip = Vector4::Transform(Vector4(corners[i].x, corners[i].y, corners[i].z, 1.0f), viewProj);
+            if (clip.w != 0.0f)
+            {
+                float ndcX = clip.x / clip.w;
+                float ndcY = clip.y / clip.w;
+
+                float screenX = (ndcX + 1.0f) * 0.5f * screenWidth;
+                float screenY = (1.0f - ndcY) * 0.5f * screenHeight;
+
+                minX = (std::min)(minX, screenX);
+                maxX = (std::max)(maxX, screenX);
+                minY = (std::min)(minY, screenY);
+                maxY = (std::max)(maxY, screenY);
+            }
+        }
+
+        return RECT{static_cast<LONG>(minX), static_cast<LONG>(minY), static_cast<LONG>(maxX), static_cast<LONG>(maxY)};
+    }
+}
 
 void TitleScene::OnEnter(GameContext& gameContext)
 {
     ID3D11Device* device = gameContext.deviceResources.GetD3DDevice();
     ID3D11DeviceContext* context = gameContext.deviceResources.GetD3DDeviceContext();
 
-    m_colorPrimitiveBatch = std::make_unique<PrimitiveBatch<VertexPositionColor>>(context);
-    m_colorEffect = std::make_unique<BasicEffect>(device);
-    m_colorEffect->SetTextureEnabled(false);
-    m_colorEffect->SetVertexColorEnabled(true);
+    m_fxFactory = std::make_unique<EffectFactory>(device);
+    m_fxFactory->SetDirectory(L"Resources/Models");
 
-    // タイトルシーン用のJSON配置を読み込み
-    m_sceneModels.Initialize(device);
-    m_sceneModels.LoadFromJson(device, "Resources/Data/title_scene.json");
-}
+    m_primitiveBatch = std::make_unique<PrimitiveBatch<VertexPositionNormalTexture>>(context);
 
-// 3D空間のAABB（最小点・最大点）を画面の2D RECTに変換するヘルパー関数
-RECT ProjectAABBToScreen(const Vector3& minBounds, const Vector3& maxBounds, const Matrix& view, const Matrix& proj,
-                         float screenWidth, float screenHeight)
-{
-    Vector3 corners[8] = {
-        Vector3(minBounds.x, minBounds.y, minBounds.z), Vector3(maxBounds.x, minBounds.y, minBounds.z),
-        Vector3(minBounds.x, maxBounds.y, minBounds.z), Vector3(maxBounds.x, maxBounds.y, minBounds.z),
-        Vector3(minBounds.x, minBounds.y, maxBounds.z), Vector3(maxBounds.x, minBounds.y, maxBounds.z),
-        Vector3(minBounds.x, maxBounds.y, maxBounds.z), Vector3(maxBounds.x, maxBounds.y, maxBounds.z),
-    };
+    m_effect = std::make_unique<BasicEffect>(device);
+    m_effect->SetTextureEnabled(true);
+    m_effect->SetVertexColorEnabled(false);
+    m_effect->SetLightingEnabled(false);
 
-    float minX = screenWidth, minY = screenHeight;
-    float maxX = 0.0f, maxY = 0.0f;
+    void const* shaderByteCode;
+    size_t byteCodeLength;
+    m_effect->GetVertexShaderBytecode(&shaderByteCode, &byteCodeLength);
+    device->CreateInputLayout(VertexPositionNormalTexture::InputElements,
+                              VertexPositionNormalTexture::InputElementCount, shaderByteCode, byteCodeLength,
+                              m_inputLayout.ReleaseAndGetAddressOf());
 
-    Matrix viewProj = view * proj;
+    SceneData loadedData;
+    m_placedObjects.clear();
 
-    for (int i = 0; i < 8; ++i)
+    if (SceneSerializer::LoadFromJson("Resources/Data/title_scene.json", loadedData))
     {
-        Vector4 clip = Vector4::Transform(Vector4(corners[i].x, corners[i].y, corners[i].z, 1.0f), viewProj);
-        if (clip.w != 0.0f)
+        for (const auto& objData : loadedData.objects)
         {
-            float ndcX = clip.x / clip.w;
-            float ndcY = clip.y / clip.w;
+            PlacedObject newObj;
+            newObj.cmoFileName = objData.modelName;
+            newObj.tag = objData.tag;
+            newObj.position = objData.position;
+            newObj.rotation = objData.rotation;
+            newObj.scale = objData.scale;
 
-            float screenX = (ndcX + 1.0f) * 0.5f * screenWidth;
-            float screenY = (1.0f - ndcY) * 0.5f * screenHeight;
+            std::string fullPathStr = "Resources/Models/" + objData.modelName;
+            std::wstring fullPath(fullPathStr.begin(), fullPathStr.end());
 
-            minX = (std::min)(minX, screenX);
-            maxX = (std::max)(maxX, screenX);
-            minY = (std::min)(minY, screenY);
-            maxY = (std::max)(maxY, screenY);
+            try
+            {
+                newObj.model = Model::CreateFromCMO(device, fullPath.c_str(), *m_fxFactory);
+            }
+            catch (...)
+            {
+            }
+
+            m_placedObjects.push_back(newObj);
         }
     }
+}
 
-    return RECT{static_cast<LONG>(minX), static_cast<LONG>(minY), static_cast<LONG>(maxX), static_cast<LONG>(maxY)};
+void TitleScene::DrawQuadWithPrimitiveBatch(ID3D11DeviceContext* context, const Matrix& world)
+{
+    VertexPositionNormalTexture v1(XMFLOAT3(-0.5f, 0.5f, 0.0f), XMFLOAT3(0, 0, -1), XMFLOAT2(0.0f, 0.0f));
+    VertexPositionNormalTexture v2(XMFLOAT3(0.5f, 0.5f, 0.0f), XMFLOAT3(0, 0, -1), XMFLOAT2(1.0f, 0.0f));
+    VertexPositionNormalTexture v3(XMFLOAT3(-0.5f, -0.5f, 0.0f), XMFLOAT3(0, 0, -1), XMFLOAT2(0.0f, 1.0f));
+    VertexPositionNormalTexture v4(XMFLOAT3(0.5f, -0.5f, 0.0f), XMFLOAT3(0, 0, -1), XMFLOAT2(1.0f, 1.0f));
+
+    m_primitiveBatch->Begin();
+    m_primitiveBatch->DrawTriangle(v1, v2, v3);
+    m_primitiveBatch->DrawTriangle(v2, v4, v3);
+    m_primitiveBatch->End();
+}
+
+Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> TitleScene::GetOrLoadTexture(ID3D11Device* device,
+                                                                              const std::string& texName)
+{
+    auto it = m_textureCache.find(texName);
+    if (it != m_textureCache.end())
+        return it->second;
+
+    std::string fullPathStr = "Resources/Textures/" + texName;
+    std::wstring fullPath(fullPathStr.begin(), fullPathStr.end());
+
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> srv;
+    HRESULT hr = DirectX::CreateWICTextureFromFile(device, fullPath.c_str(), nullptr, srv.GetAddressOf());
+
+    if (FAILED(hr))
+    {
+        fullPathStr = "Resources/Models/" + texName;
+        std::wstring fullPath2(fullPathStr.begin(), fullPathStr.end());
+        hr = DirectX::CreateWICTextureFromFile(device, fullPath2.c_str(), nullptr, srv.GetAddressOf());
+    }
+
+    if (SUCCEEDED(hr))
+    {
+        m_textureCache[texName] = srv;
+        return srv;
+    }
+
+    return nullptr;
 }
 
 void TitleScene::Update(Imase::ISceneController<SceneId>& sceneController, GameContext& gameContext)
 {
+    // ★ Tab + E キーでエディターシーンへ移動
+    auto kbState = DirectX::Keyboard::Get().GetState();
+    if (kbState.IsKeyDown(DirectX::Keyboard::Keys::Tab) && kbState.IsKeyDown(DirectX::Keyboard::Keys::E))
+    {
+        sceneController.RequestSwitch(SceneId::EditorScene);
+        return;
+    }
+
     auto outputSize = gameContext.deviceResources.GetOutputSize();
     float screenWidth = static_cast<float>(outputSize.right - outputSize.left);
     float screenHeight = static_cast<float>(outputSize.bottom - outputSize.top);
+    float aspectRatio = screenWidth / screenHeight;
 
-    // カメラ行列（Renderと同じ画角で計算）
-    Matrix view = Matrix::CreateLookAt(Vector3(0.0f, 10.0f, -20.0f), Vector3::Zero, Vector3::Up);
-    Matrix projection =
-        Matrix::CreatePerspectiveFieldOfView(XMConvertToRadians(45.0f), screenWidth / screenHeight, 0.1f, 1000.0f);
+    // EditorScene と寸法を完全一致させた Orthographic カメラ
+    Matrix view = Matrix::CreateLookAt(Vector3(0.0f, 0.0f, -10.0f), Vector3::Zero, Vector3::Up);
+    float orthoHeight = 10.0f;
+    float orthoWidth = orthoHeight * aspectRatio;
+    Matrix projection = Matrix::CreateOrthographic(orthoWidth, orthoHeight, 0.1f, 1000.0f);
 
-    // ★ エディターで設定した Tag ("StartButton" / "ExitButton") のモデルからボタン矩形を自動生成
-    Vector3 minB, maxB;
-    if (m_sceneModels.GetObjectAABB("StartButton", minB, maxB))
+    bool foundStart = false;
+    bool foundExit = false;
+
+    for (const auto& obj : m_placedObjects)
     {
-        m_startBtnRect = ProjectAABBToScreen(minB, maxB, view, projection, screenWidth, screenHeight);
+        std::string nameLower = obj.cmoFileName;
+        std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
+
+        if (obj.tag == "StartButton" || nameLower.find("start") != std::string::npos)
+        {
+            Vector3 minB = obj.position - (obj.scale * 0.5f);
+            Vector3 maxB = obj.position + (obj.scale * 0.5f);
+            m_startBtnRect = ProjectAABBToScreen(minB, maxB, view, projection, screenWidth, screenHeight);
+            foundStart = true;
+        }
+        else if (obj.tag == "ExitButton" || nameLower.find("exit") != std::string::npos)
+        {
+            Vector3 minB = obj.position - (obj.scale * 0.5f);
+            Vector3 maxB = obj.position + (obj.scale * 0.5f);
+            m_exitBtnRect = ProjectAABBToScreen(minB, maxB, view, projection, screenWidth, screenHeight);
+            foundExit = true;
+        }
     }
-    else
+
+    if (!foundStart)
     {
-        // Tagが設定されていない場合のフォールバック（デフォルト位置）
         float centerX = screenWidth * 0.5f, startY = screenHeight * 0.60f;
         m_startBtnRect = {static_cast<LONG>(centerX - 100.0f), static_cast<LONG>(startY - 25.0f),
                           static_cast<LONG>(centerX + 100.0f), static_cast<LONG>(startY + 25.0f)};
     }
-
-    if (m_sceneModels.GetObjectAABB("ExitButton", minB, maxB))
-    {
-        m_exitBtnRect = ProjectAABBToScreen(minB, maxB, view, projection, screenWidth, screenHeight);
-    }
-    else
+    if (!foundExit)
     {
         float centerX = screenWidth * 0.5f, exitY = screenHeight * 0.72f;
         m_exitBtnRect = {static_cast<LONG>(centerX - 100.0f), static_cast<LONG>(exitY - 25.0f),
                          static_cast<LONG>(centerX + 100.0f), static_cast<LONG>(exitY + 25.0f)};
     }
 
-    // マウス入力処理
     auto mouseState = DirectX::Mouse::Get().GetState();
     static DirectX::Mouse::ButtonStateTracker mouseTracker;
     mouseTracker.Update(mouseState);
@@ -119,79 +222,128 @@ void TitleScene::Update(Imase::ISceneController<SceneId>& sceneController, GameC
 
 void TitleScene::Render(GameContext& gameContext)
 {
+    ID3D11Device* device = gameContext.deviceResources.GetD3DDevice();
     ID3D11DeviceContext* context = gameContext.deviceResources.GetD3DDeviceContext();
 
     auto outputSize = gameContext.deviceResources.GetOutputSize();
     float screenWidth = static_cast<float>(outputSize.right - outputSize.left);
     float screenHeight = static_cast<float>(outputSize.bottom - outputSize.top);
+    float aspectRatio = screenWidth / screenHeight;
 
-    // ── 1. JSONモデルの3D描画 ──
-    Matrix view = Matrix::CreateLookAt(Vector3(0.0f, 10.0f, -20.0f), Vector3::Zero, Vector3::Up);
-    Matrix projection =
-        Matrix::CreatePerspectiveFieldOfView(XMConvertToRadians(45.0f), screenWidth / screenHeight, 0.1f, 1000.0f);
+    // ==========================================
+    // レイヤー 1: 3Dワールド空間（Perspective）
+    // スカイドーム等の 3Dモデルを描画
+    // ==========================================
+    Vector3 cameraPos = Vector3(0.0f, 0.0f, -10.0f);
+    Matrix perspectiveView = Matrix::CreateLookAt(cameraPos, Vector3::Zero, Vector3::Up);
+    Matrix perspectiveProj =
+        Matrix::CreatePerspectiveFieldOfView(XMConvertToRadians(45.0f), aspectRatio, 0.1f, 1000.0f);
 
-    m_sceneModels.Render(context, gameContext.commonStates, view, projection);
+    context->OMSetBlendState(gameContext.commonStates.Opaque(), nullptr, 0xFFFFFFFF);
+    context->OMSetDepthStencilState(gameContext.commonStates.DepthDefault(), 0);
 
-    // ── 2. 2D UI 描画 ──
-    Matrix orthoProj = Matrix::CreateOrthographicOffCenter(0.0f, screenWidth, screenHeight, 0.0f, 0.0f, 1.0f);
+    for (const auto& obj : m_placedObjects)
+    {
+        if (!obj.model)
+            continue; // 3Dモデル以外はスキップ
+
+        std::string tagLower = obj.tag;
+        std::string nameLower = obj.cmoFileName;
+        std::transform(tagLower.begin(), tagLower.end(), tagLower.begin(), ::tolower);
+        std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
+
+        bool isSky = (tagLower.find("sky") != std::string::npos || nameLower.find("sky") != std::string::npos);
+
+        Matrix localWorld;
+        if (isSky)
+        {
+            localWorld = Matrix::CreateScale(obj.scale) * Matrix::CreateRotationX(XMConvertToRadians(obj.rotation.x)) *
+                         Matrix::CreateRotationY(XMConvertToRadians(obj.rotation.y)) *
+                         Matrix::CreateRotationZ(XMConvertToRadians(obj.rotation.z)) *
+                         Matrix::CreateTranslation(cameraPos);
+
+            context->RSSetState(gameContext.commonStates.CullNone());
+        }
+        else
+        {
+            localWorld = Matrix::CreateScale(obj.scale) * Matrix::CreateRotationX(XMConvertToRadians(obj.rotation.x)) *
+                         Matrix::CreateRotationY(XMConvertToRadians(obj.rotation.y)) *
+                         Matrix::CreateRotationZ(XMConvertToRadians(obj.rotation.z)) *
+                         Matrix::CreateTranslation(obj.position);
+
+            context->RSSetState(gameContext.commonStates.CullCounterClockwise());
+        }
+
+        for (auto& mesh : obj.model->meshes)
+        {
+            for (auto& part : mesh->meshParts)
+            {
+                if (auto effect = std::dynamic_pointer_cast<IEffectLights>(part->effect))
+                {
+                    effect->EnableDefaultLighting();
+                }
+            }
+        }
+
+        obj.model->Draw(context, gameContext.commonStates, localWorld, perspectiveView, perspectiveProj);
+    }
+
+    // ==========================================
+    // レイヤー 2: 2D Canvas UI（Orthographic）
+    // 3D背景描画後に深度バッファをクリアし、UIを最前面に描画
+    // ==========================================
+    context->ClearDepthStencilView(gameContext.deviceResources.GetDepthStencilView(), D3D11_CLEAR_DEPTH, 1.0f, 0);
+
+    Matrix orthoView = Matrix::CreateLookAt(Vector3(0.0f, 0.0f, -10.0f), Vector3::Zero, Vector3::Up);
+    float orthoHeight = 10.0f;
+    float orthoWidth = orthoHeight * aspectRatio;
+    Matrix orthoProj = Matrix::CreateOrthographic(orthoWidth, orthoHeight, 0.1f, 1000.0f);
 
     context->OMSetBlendState(gameContext.commonStates.AlphaBlend(), nullptr, 0xFFFFFFFF);
-    context->OMSetDepthStencilState(gameContext.commonStates.DepthNone(), 0);
     context->RSSetState(gameContext.commonStates.CullNone());
+    context->OMSetDepthStencilState(gameContext.commonStates.DepthRead(), 0);
 
-    m_colorEffect->SetWorld(Matrix::Identity);
-    m_colorEffect->SetView(Matrix::Identity);
-    m_colorEffect->SetProjection(orthoProj);
-
-    void const* colorByteCode;
-    size_t colorByteCodeLength;
-    m_colorEffect->GetVertexShaderBytecode(&colorByteCode, &colorByteCodeLength);
-
-    Microsoft::WRL::ComPtr<ID3D11InputLayout> colorInputLayout;
-    gameContext.deviceResources.GetD3DDevice()->CreateInputLayout(VertexPositionColor::InputElements,
-                                                                  VertexPositionColor::InputElementCount, colorByteCode,
-                                                                  colorByteCodeLength, colorInputLayout.GetAddressOf());
-    context->IASetInputLayout(colorInputLayout.Get());
-
-    m_colorEffect->Apply(context);
-    m_colorPrimitiveBatch->Begin();
-
-    // ボタン描画関数
-    auto DrawButton = [&](const RECT& rect, bool isHovered)
+    for (const auto& obj : m_placedObjects)
     {
-        Vector4 col = isHovered ? Vector4(0.2f, 0.6f, 0.9f, 0.9f) : Vector4(0.1f, 0.2f, 0.4f, 0.8f);
-        float l = static_cast<float>(rect.left);
-        float r = static_cast<float>(rect.right);
-        float t = static_cast<float>(rect.top);
-        float b = static_cast<float>(rect.bottom);
+        if (obj.model)
+            continue; // 3Dモデルはレイヤー1で描画済み
 
-        VertexPositionColor v0(Vector3(l, t, 0.0f), col);
-        VertexPositionColor v1(Vector3(r, t, 0.0f), col);
-        VertexPositionColor v2(Vector3(l, b, 0.0f), col);
-        VertexPositionColor v3(Vector3(r, b, 0.0f), col);
-        m_colorPrimitiveBatch->DrawTriangle(v0, v1, v2);
-        m_colorPrimitiveBatch->DrawTriangle(v2, v1, v3);
-    };
+        Matrix localWorld =
+            Matrix::CreateScale(obj.scale) * Matrix::CreateRotationX(XMConvertToRadians(obj.rotation.x)) *
+            Matrix::CreateRotationY(XMConvertToRadians(obj.rotation.y)) *
+            Matrix::CreateRotationZ(XMConvertToRadians(obj.rotation.z)) * Matrix::CreateTranslation(obj.position);
 
-    DrawButton(m_startBtnRect, m_isStartHovered);
-    DrawButton(m_exitBtnRect, m_isExitHovered);
+        auto tex = GetOrLoadTexture(device, obj.cmoFileName);
 
-    m_colorPrimitiveBatch->End();
+        if (tex)
+        {
+            m_effect->SetTexture(tex.Get());
+            m_effect->SetWorld(localWorld);
+            m_effect->SetView(orthoView);
+            m_effect->SetProjection(orthoProj);
 
-    // ── 3. テキスト描画 ──
+            if ((obj.tag == "StartButton" && m_isStartHovered) || (obj.tag == "ExitButton" && m_isExitHovered))
+            {
+                m_effect->SetDiffuseColor(Vector4(1.3f, 1.3f, 1.3f, 1.0f));
+            }
+            else
+            {
+                m_effect->SetDiffuseColor(Vector4(1.0f, 1.0f, 1.0f, 1.0f));
+            }
+
+            m_effect->Apply(context);
+            context->IASetInputLayout(m_inputLayout.Get());
+
+            DrawQuadWithPrimitiveBatch(context, localWorld);
+        }
+    }
+
+    // ステート復元
+    context->OMSetBlendState(gameContext.commonStates.Opaque(), nullptr, 0xFFFFFFFF);
+    context->OMSetDepthStencilState(gameContext.commonStates.DepthDefault(), 0);
+    context->RSSetState(gameContext.commonStates.CullCounterClockwise());
+
+    // デバッグテキスト描画
     Imase::DebugRenderer& debugRenderer = gameContext.debugRenderer;
-
-    float mainTextX = screenWidth * 0.5f - 80.0f;
-    float mainTextY = screenHeight * 0.35f;
-    debugRenderer.DrawText({mainTextX, mainTextY}, L"DICE BATTLE GAME");
-
-    float startTextX = static_cast<float>(m_startBtnRect.left + m_startBtnRect.right) * 0.5f - 25.0f;
-    float startTextY = static_cast<float>(m_startBtnRect.top + m_startBtnRect.bottom) * 0.5f - 8.0f;
-    debugRenderer.DrawText({startTextX, startTextY}, L"START");
-
-    float exitTextX = static_cast<float>(m_exitBtnRect.left + m_exitBtnRect.right) * 0.5f - 20.0f;
-    float exitTextY = static_cast<float>(m_exitBtnRect.top + m_exitBtnRect.bottom) * 0.5f - 8.0f;
-    debugRenderer.DrawText({exitTextX, exitTextY}, L"EXIT");
-
     debugRenderer.Render(context, &gameContext.commonStates);
 }

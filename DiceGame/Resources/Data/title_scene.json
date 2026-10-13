@@ -6,7 +6,100 @@
                 1.0,
                 1.0
             ],
-            "modelName": "Floor.cmo",
+            "modelName": "Title.png",
+            "position": [
+                0.0,
+                1.600000023841858,
+                0.0
+            ],
+            "rigidBody": {
+                "damping": 0.9800000190734863,
+                "enabled": false,
+                "isStatic": false,
+                "mass": 1.0,
+                "useGravity": true
+            },
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                -6.550000190734863,
+                4.349999904632568,
+                0.0
+            ],
+            "tag": "TitleLogo"
+        },
+        {
+            "collisionScale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "modelName": "START.png",
+            "position": [
+                0.0,
+                -1.399999976158142,
+                0.0
+            ],
+            "rigidBody": {
+                "damping": 0.9800000190734863,
+                "enabled": false,
+                "isStatic": false,
+                "mass": 1.0,
+                "useGravity": true
+            },
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                -4.0,
+                2.0,
+                0.20000000298023224
+            ],
+            "tag": "StartButton"
+        },
+        {
+            "collisionScale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "modelName": "EXIT.png",
+            "position": [
+                0.0,
+                -3.200000047683716,
+                0.0
+            ],
+            "rigidBody": {
+                "damping": 0.9800000190734863,
+                "enabled": false,
+                "isStatic": false,
+                "mass": 1.0,
+                "useGravity": true
+            },
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                -4.0,
+                2.0,
+                0.20000000298023224
+            ],
+            "tag": "ExitButton"
+        },
+        {
+            "collisionScale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "modelName": "SkyDoom.cmo",
             "position": [
                 0.0,
                 0.0,
@@ -25,11 +118,11 @@
                 0.0
             ],
             "scale": [
-                1.0,
-                1.0,
-                1.0
+                100.0,
+                100.0,
+                100.0
             ],
-            "tag": "Default"
+            "tag": "Sky"
         }
     ]
 }

@@ -466,8 +466,17 @@ bool DiceBattleAI::ExecuteMove(DiceBattleGame& game)
         }
     }
 
-    std::uniform_int_distribution<size_t> dist(0, bestMoves.size() - 1);
+   std::uniform_int_distribution<size_t> dist(0, bestMoves.size() - 1);
     MoveOption chosen = bestMoves[dist(m_rng)];
 
-    return game.MovePiece(chosen.fromX, chosen.fromY, chosen.toX, chosen.toY);
+    // 移動先の敵コマ（プレイヤーのコマ）が存在するか確認
+    const auto* targetPiece = game.GetPieceAt(chosen.toX, chosen.toY);
+    bool isPlayerPieceDefeated = (targetPiece != nullptr && targetPiece->owner == PlayerType::Player1);
+
+   // 実際にコマを移動
+    bool success = game.MovePiece(chosen.fromX, chosen.fromY, chosen.toX, chosen.toY);
+
+   
+
+    return success;
 }

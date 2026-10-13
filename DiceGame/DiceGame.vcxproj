@@ -190,6 +190,7 @@
     <ClInclude Include="Common\DeviceResources.h" />
     <ClInclude Include="Dice.h" />
     <ClInclude Include="DirectXTK_Utilities\DebugDraw.h" />
+    <ClInclude Include="DQN\SimpleDQN.h" />
     <ClInclude Include="SceneModelManager\SceneModelManager.h" />
     <ClInclude Include="Scene\EditorScene\EditorScene.h" />
     <ClInclude Include="Framework\ObjectData.h" />
