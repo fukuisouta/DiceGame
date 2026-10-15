@@ -17,6 +17,8 @@
 #include "../SceneId.h"
 #include "Framework/ObjectData.h"
 
+#include "Network/NetworkLobbyUI.h"
+
 class TitleScene : public Imase::SceneBase<SceneId, GameContext>
 {
 public:
@@ -48,4 +50,6 @@ private:
     RECT m_exitBtnRect = {0, 0, 0, 0};
     bool m_isStartHovered = false;
     bool m_isExitHovered = false;
+
+    NetworkLobbyUI m_networkUI;
 };

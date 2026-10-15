@@ -1,6 +1,7 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "SelectScene.h"
 #include "Framework/SceneSerializer.h"
+#include "Network/NetworkPackets.h"
 #include <algorithm>
 
 using namespace DirectX;
@@ -8,40 +9,25 @@ using namespace DirectX::SimpleMath;
 
 namespace
 {
-    RECT ProjectAABBToScreen(const Vector3& minBounds, const Vector3& maxBounds, const Matrix& view, const Matrix& proj,
-                             float screenWidth, float screenHeight)
+    RECT ConvertOrthoToScreenRect(Vector3 pos, Vector3 scale, float orthoWidth, float orthoHeight, float screenWidth,
+                                  float screenHeight)
     {
-        Vector3 corners[8] = {
-            Vector3(minBounds.x, minBounds.y, minBounds.z), Vector3(maxBounds.x, minBounds.y, minBounds.z),
-            Vector3(minBounds.x, maxBounds.y, minBounds.z), Vector3(maxBounds.x, maxBounds.y, minBounds.z),
-            Vector3(minBounds.x, minBounds.y, maxBounds.z), Vector3(maxBounds.x, maxBounds.y, maxBounds.z),
-            Vector3(minBounds.x, maxBounds.y, maxBounds.z), Vector3(maxBounds.x, maxBounds.y, maxBounds.z),
-        };
+        float leftW = pos.x - (scale.x * 0.5f);
+        float rightW = pos.x + (scale.x * 0.5f);
+        float topW = pos.y + (scale.y * 0.5f);
+        float bottomW = pos.y - (scale.y * 0.5f);
 
-        float minX = screenWidth, minY = screenHeight;
-        float maxX = 0.0f, maxY = 0.0f;
+        float x1 = (0.5f - leftW / orthoWidth) * screenWidth;
+        float x2 = (0.5f - rightW / orthoWidth) * screenWidth;
+        float y1 = (0.5f - topW / orthoHeight) * screenHeight;
+        float y2 = (0.5f - bottomW / orthoHeight) * screenHeight;
 
-        Matrix viewProj = view * proj;
+        LONG minX = static_cast<LONG>((std::min)(x1, x2));
+        LONG maxX = static_cast<LONG>((std::max)(x1, x2));
+        LONG minY = static_cast<LONG>((std::min)(y1, y2));
+        LONG maxY = static_cast<LONG>((std::max)(y1, y2));
 
-        for (int i = 0; i < 8; ++i)
-        {
-            Vector4 clip = Vector4::Transform(Vector4(corners[i].x, corners[i].y, corners[i].z, 1.0f), viewProj);
-            if (clip.w != 0.0f)
-            {
-                float ndcX = clip.x / clip.w;
-                float ndcY = clip.y / clip.w;
-
-                float screenX = (ndcX + 1.0f) * 0.5f * screenWidth;
-                float screenY = (1.0f - ndcY) * 0.5f * screenHeight;
-
-                minX = (std::min)(minX, screenX);
-                maxX = (std::max)(maxX, screenX);
-                minY = (std::min)(minY, screenY);
-                maxY = (std::max)(maxY, screenY);
-            }
-        }
-
-        return RECT{static_cast<LONG>(minX), static_cast<LONG>(minY), static_cast<LONG>(maxX), static_cast<LONG>(maxY)};
+        return RECT{minX, minY, maxX, maxY};
     }
 }
 
@@ -69,7 +55,16 @@ void SelectScene::OnEnter(GameContext& gameContext)
 
     m_mouseTracker.Reset();
 
-    // エディターで作成した select_scene.json をロード
+    m_gifRoll.LoadFromFile(device, L"Resources/Textures/Roll.gif");
+    m_gifMove.LoadFromFile(device, L"Resources/Textures/Move.gif");
+    m_gifClash.LoadFromFile(device, L"Resources/Textures/Kill.gif");
+
+    GetOrLoadTexture(device, "Left.png");
+    GetOrLoadTexture(device, "Right.png");
+
+    m_showRulePanel = false;
+    m_currentGuidePage = 0;
+
     SceneData loadedData;
     m_placedObjects.clear();
 
@@ -77,6 +72,14 @@ void SelectScene::OnEnter(GameContext& gameContext)
     {
         for (const auto& objData : loadedData.objects)
         {
+            std::string tagLower = objData.tag;
+            std::transform(tagLower.begin(), tagLower.end(), tagLower.begin(), ::tolower);
+            if (tagLower == "gif_roll" || tagLower == "gif_move" || tagLower == "gif_clash" || tagLower == "roll" ||
+                tagLower == "move" || tagLower == "clash" || tagLower == "kill")
+            {
+                continue;
+            }
+
             PlacedObject newObj;
             newObj.cmoFileName = objData.modelName;
             newObj.tag = objData.tag;
@@ -93,7 +96,6 @@ void SelectScene::OnEnter(GameContext& gameContext)
             }
             catch (...)
             {
-                // 画像UIはモデルロードをスキップして PrimitiveBatch 描画
             }
 
             m_placedObjects.push_back(newObj);
@@ -145,19 +147,58 @@ Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> SelectScene::GetOrLoadTexture(I
 
 void SelectScene::Update(Imase::ISceneController<SceneId>& sceneController, GameContext& gameContext)
 {
+    if (gameContext.networkManager.IsConnected())
+    {
+        std::vector<uint8_t> packet;
+        while (gameContext.networkManager.PopPacket(packet))
+        {
+            if (packet.size() < sizeof(PacketHeader))
+                continue;
+            PacketHeader* header = reinterpret_cast<PacketHeader*>(packet.data());
+
+            if (header->type == PacketType::CS_SelectMode)
+            {
+                MsgSelectMode* msg = reinterpret_cast<MsgSelectMode*>(packet.data());
+                if (msg->mode == 0)
+                {
+                    gameContext.selectedMode = GameMode::Original;
+                    sceneController.RequestSwitch(SceneId::OriginalGamePlayScene);
+                }
+                else
+                {
+                    gameContext.selectedMode = GameMode::Advance;
+                    sceneController.RequestSwitch(SceneId::AdvanceGamePlayScene);
+                }
+                return;
+            }
+        }
+    }
+
+    auto kbState = DirectX::Keyboard::Get().GetState();
+    if (kbState.IsKeyDown(DirectX::Keyboard::Keys::Tab) && kbState.IsKeyDown(DirectX::Keyboard::Keys::E))
+    {
+        sceneController.RequestSwitch(SceneId::EditorScene);
+        return;
+    }
+
+    float dt = static_cast<float>(gameContext.timer.GetElapsedSeconds());
+    if (m_showRulePanel)
+    {
+        if (m_currentGuidePage == 0)
+            m_gifRoll.Update(dt);
+        else if (m_currentGuidePage == 1)
+            m_gifMove.Update(dt);
+        else if (m_currentGuidePage == 2)
+            m_gifClash.Update(dt);
+    }
+
     auto outputSize = gameContext.deviceResources.GetOutputSize();
     float screenWidth = static_cast<float>(outputSize.right - outputSize.left);
     float screenHeight = static_cast<float>(outputSize.bottom - outputSize.top);
     float aspectRatio = screenWidth / screenHeight;
 
-    // TitleScene & EditorScene と完全に揃えた Orthographic カメラ
-    Matrix view = Matrix::CreateLookAt(Vector3(0.0f, 0.0f, -10.0f), Vector3::Zero, Vector3::Up);
     float orthoHeight = 10.0f;
     float orthoWidth = orthoHeight * aspectRatio;
-    Matrix projection = Matrix::CreateOrthographic(orthoWidth, orthoHeight, 0.1f, 1000.0f);
-
-    bool foundOriginal = false;
-    bool foundAdvance = false;
 
     for (const auto& obj : m_placedObjects)
     {
@@ -168,32 +209,29 @@ void SelectScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
 
         if (tagLower == "originalbutton" || tagLower == "original" || nameLower.find("original") != std::string::npos)
         {
-            Vector3 minB = obj.position - (obj.scale * 0.5f);
-            Vector3 maxB = obj.position + (obj.scale * 0.5f);
-            m_originalBtnRect = ProjectAABBToScreen(minB, maxB, view, projection, screenWidth, screenHeight);
-            foundOriginal = true;
+            m_originalBtnRect =
+                ConvertOrthoToScreenRect(obj.position, obj.scale, orthoWidth, orthoHeight, screenWidth, screenHeight);
         }
         else if (tagLower == "advancebutton" || tagLower == "advance" || nameLower.find("advance") != std::string::npos)
         {
-            Vector3 minB = obj.position - (obj.scale * 0.5f);
-            Vector3 maxB = obj.position + (obj.scale * 0.5f);
-            m_advanceBtnRect = ProjectAABBToScreen(minB, maxB, view, projection, screenWidth, screenHeight);
-            foundAdvance = true;
+            m_advanceBtnRect =
+                ConvertOrthoToScreenRect(obj.position, obj.scale, orthoWidth, orthoHeight, screenWidth, screenHeight);
         }
     }
 
-    if (!foundOriginal)
-    {
-        float leftX = screenWidth * 0.30f, btnY = screenHeight * 0.65f;
-        m_originalBtnRect = {static_cast<LONG>(leftX - 120.0f), static_cast<LONG>(btnY - 30.0f),
-                             static_cast<LONG>(leftX + 120.0f), static_cast<LONG>(btnY + 30.0f)};
-    }
-    if (!foundAdvance)
-    {
-        float rightX = screenWidth * 0.70f, btnY = screenHeight * 0.65f;
-        m_advanceBtnRect = {static_cast<LONG>(rightX - 120.0f), static_cast<LONG>(btnY - 30.0f),
-                            static_cast<LONG>(rightX + 120.0f), static_cast<LONG>(btnY + 30.0f)};
-    }
+    Vector3 ruleBtnPos(orthoWidth * 0.5f - 1.8f, orthoHeight * 0.5f - 0.8f, 0.0f);
+    Vector3 ruleBtnScale(2.2f, 0.9f, 1.0f);
+    m_ruleBtnRect =
+        ConvertOrthoToScreenRect(ruleBtnPos, ruleBtnScale, orthoWidth, orthoHeight, screenWidth, screenHeight);
+
+    Vector3 leftArrowPos(-4.5f, -0.2f, 0.0f);
+    Vector3 rightArrowPos(4.5f, -0.2f, 0.0f);
+    Vector3 arrowScale(1.3f, 1.3f, 1.0f);
+
+    m_prevArrowRect =
+        ConvertOrthoToScreenRect(leftArrowPos, arrowScale, orthoWidth, orthoHeight, screenWidth, screenHeight);
+    m_nextArrowRect =
+        ConvertOrthoToScreenRect(rightArrowPos, arrowScale, orthoWidth, orthoHeight, screenWidth, screenHeight);
 
     auto mouseState = DirectX::Mouse::Get().GetState();
     m_mouseTracker.Update(mouseState);
@@ -204,17 +242,59 @@ void SelectScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
     m_isAdvanceHovered = (mouseState.x >= m_advanceBtnRect.left && mouseState.x <= m_advanceBtnRect.right &&
                           mouseState.y >= m_advanceBtnRect.top && mouseState.y <= m_advanceBtnRect.bottom);
 
+    m_isRuleBtnHovered = (mouseState.x >= m_ruleBtnRect.left && mouseState.x <= m_ruleBtnRect.right &&
+                          mouseState.y >= m_ruleBtnRect.top && mouseState.y <= m_ruleBtnRect.bottom);
+
+    m_isPrevHovered = (mouseState.x >= m_prevArrowRect.left && mouseState.x <= m_prevArrowRect.right &&
+                       mouseState.y >= m_prevArrowRect.top && mouseState.y <= m_prevArrowRect.bottom);
+
+    m_isNextHovered = (mouseState.x >= m_nextArrowRect.left && mouseState.x <= m_nextArrowRect.right &&
+                       mouseState.y >= m_nextArrowRect.top && mouseState.y <= m_nextArrowRect.bottom);
+
     if (m_mouseTracker.leftButton == DirectX::Mouse::ButtonStateTracker::PRESSED)
     {
-        if (m_isOriginalHovered)
+        if (m_isRuleBtnHovered)
         {
-            gameContext.selectedMode = GameMode::Original;
-            sceneController.RequestSwitch(SceneId::OriginalGamePlayScene);
+            m_showRulePanel = !m_showRulePanel;
         }
-        else if (m_isAdvanceHovered)
+        else if (m_showRulePanel)
         {
-            gameContext.selectedMode = GameMode::Advance;
-            sceneController.RequestSwitch(SceneId::AdvanceGamePlayScene);
+            if (m_isPrevHovered)
+            {
+                m_currentGuidePage = (m_currentGuidePage + 1) % 3;
+            }
+            else if (m_isNextHovered)
+            {
+                m_currentGuidePage = (m_currentGuidePage + 2) % 3;
+            }
+        }
+        else
+        {
+            auto SendModePacket = [&](uint8_t modeVal)
+            {
+                if (gameContext.networkManager.IsConnected() &&
+                    gameContext.networkManager.GetMode() == NetworkManager::Mode::Host)
+                {
+                    MsgSelectMode msg{};
+                    msg.header.size = sizeof(MsgSelectMode);
+                    msg.header.type = PacketType::CS_SelectMode;
+                    msg.mode = modeVal;
+                    gameContext.networkManager.SendPacket(&msg, sizeof(msg));
+                }
+            };
+
+            if (m_isOriginalHovered)
+            {
+                SendModePacket(0);
+                gameContext.selectedMode = GameMode::Original;
+                sceneController.RequestSwitch(SceneId::OriginalGamePlayScene);
+            }
+            else if (m_isAdvanceHovered)
+            {
+                SendModePacket(1);
+                gameContext.selectedMode = GameMode::Advance;
+                sceneController.RequestSwitch(SceneId::AdvanceGamePlayScene);
+            }
         }
     }
 }
@@ -229,8 +309,8 @@ void SelectScene::Render(GameContext& gameContext)
     float screenHeight = static_cast<float>(outputSize.bottom - outputSize.top);
     float aspectRatio = screenWidth / screenHeight;
 
-    // ── 1. 3Dワールドレイヤー (Perspective) ──
-    Matrix perspectiveView = Matrix::CreateLookAt(Vector3(0.0f, 10.0f, -20.0f), Vector3::Zero, Vector3::Up);
+    Vector3 cameraPos = Vector3(0.0f, 0.0f, -10.0f);
+    Matrix perspectiveView = Matrix::CreateLookAt(cameraPos, Vector3::Zero, Vector3::Up);
     Matrix perspectiveProj =
         Matrix::CreatePerspectiveFieldOfView(XMConvertToRadians(45.0f), aspectRatio, 0.1f, 1000.0f);
 
@@ -255,7 +335,7 @@ void SelectScene::Render(GameContext& gameContext)
             localWorld = Matrix::CreateScale(obj.scale) * Matrix::CreateRotationX(XMConvertToRadians(obj.rotation.x)) *
                          Matrix::CreateRotationY(XMConvertToRadians(obj.rotation.y)) *
                          Matrix::CreateRotationZ(XMConvertToRadians(obj.rotation.z)) *
-                         Matrix::CreateTranslation(Vector3(0.0f, 10.0f, -20.0f));
+                         Matrix::CreateTranslation(cameraPos);
 
             context->RSSetState(gameContext.commonStates.CullNone());
         }
@@ -283,7 +363,6 @@ void SelectScene::Render(GameContext& gameContext)
         obj.model->Draw(context, gameContext.commonStates, localWorld, perspectiveView, perspectiveProj);
     }
 
-    // ── 2. 2D UI キャンバスレイヤー (Orthographic) ──
     context->ClearDepthStencilView(gameContext.deviceResources.GetDepthStencilView(), D3D11_CLEAR_DEPTH, 1.0f, 0);
 
     Matrix orthoView = Matrix::CreateLookAt(Vector3(0.0f, 0.0f, -10.0f), Vector3::Zero, Vector3::Up);
@@ -295,34 +374,43 @@ void SelectScene::Render(GameContext& gameContext)
     context->RSSetState(gameContext.commonStates.CullNone());
     context->OMSetDepthStencilState(gameContext.commonStates.DepthRead(), 0);
 
+    m_effect->SetTextureEnabled(true);
+
     for (const auto& obj : m_placedObjects)
     {
         if (obj.model)
             continue;
+
+        std::string tagLower = obj.tag;
+        std::string nameLower = obj.cmoFileName;
+        std::transform(tagLower.begin(), tagLower.end(), tagLower.begin(), ::tolower);
+        std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
 
         Matrix localWorld =
             Matrix::CreateScale(obj.scale) * Matrix::CreateRotationX(XMConvertToRadians(obj.rotation.x)) *
             Matrix::CreateRotationY(XMConvertToRadians(obj.rotation.y)) *
             Matrix::CreateRotationZ(XMConvertToRadians(obj.rotation.z)) * Matrix::CreateTranslation(obj.position);
 
-        auto tex = GetOrLoadTexture(device, obj.cmoFileName);
-
-        if (tex)
+        auto texRef = GetOrLoadTexture(device, obj.cmoFileName);
+        if (texRef)
         {
-            m_effect->SetTexture(tex.Get());
+            m_effect->SetTexture(texRef.Get());
             m_effect->SetWorld(localWorld);
             m_effect->SetView(orthoView);
             m_effect->SetProjection(orthoProj);
 
-            std::string tagLower = obj.tag;
-            std::transform(tagLower.begin(), tagLower.end(), tagLower.begin(), ::tolower);
+            bool isOriginal =
+                (tagLower.find("original") != std::string::npos || nameLower.find("original") != std::string::npos);
+            bool isAdvance =
+                (tagLower.find("advance") != std::string::npos || nameLower.find("advance") != std::string::npos);
 
-            bool isOriginal = (tagLower.find("original") != std::string::npos);
-            bool isAdvance = (tagLower.find("advance") != std::string::npos);
-
-            if ((isOriginal && m_isOriginalHovered) || (isAdvance && m_isAdvanceHovered))
+            if (m_showRulePanel)
             {
-                m_effect->SetDiffuseColor(Vector4(1.3f, 1.3f, 1.3f, 1.0f));
+                m_effect->SetDiffuseColor(Vector4(0.4f, 0.4f, 0.4f, 1.0f));
+            }
+            else if ((isOriginal && m_isOriginalHovered) || (isAdvance && m_isAdvanceHovered))
+            {
+                m_effect->SetDiffuseColor(Vector4(1.4f, 1.4f, 1.4f, 1.0f));
             }
             else
             {
@@ -331,7 +419,91 @@ void SelectScene::Render(GameContext& gameContext)
 
             m_effect->Apply(context);
             context->IASetInputLayout(m_inputLayout.Get());
+            DrawQuadWithPrimitiveBatch(context);
+        }
+    }
 
+    {
+        Vector3 ruleBtnPos(orthoWidth * 0.5f - 1.8f, orthoHeight * 0.5f - 0.8f, 0.0f);
+        float scaleMul = m_isRuleBtnHovered ? 1.15f : 1.0f;
+        Matrix ruleWorld =
+            Matrix::CreateScale(2.2f * scaleMul, 0.9f * scaleMul, 1.0f) * Matrix::CreateTranslation(ruleBtnPos);
+
+        m_effect->SetTextureEnabled(false);
+        m_effect->SetTexture(nullptr);
+        m_effect->SetWorld(ruleWorld);
+        m_effect->SetView(orthoView);
+        m_effect->SetProjection(orthoProj);
+
+        if (m_showRulePanel)
+            m_effect->SetDiffuseColor(m_isRuleBtnHovered ? Vector4(0.3f, 1.0f, 0.5f, 1.0f)
+                                                         : Vector4(0.2f, 0.7f, 0.4f, 1.0f));
+        else
+            m_effect->SetDiffuseColor(m_isRuleBtnHovered ? Vector4(0.4f, 0.8f, 1.0f, 1.0f)
+                                                         : Vector4(0.2f, 0.5f, 0.8f, 1.0f));
+
+        m_effect->Apply(context);
+        context->IASetInputLayout(m_inputLayout.Get());
+        DrawQuadWithPrimitiveBatch(context);
+    }
+
+    if (m_showRulePanel)
+    {
+        m_effect->SetTextureEnabled(true);
+
+        ID3D11ShaderResourceView* currentGifTex = nullptr;
+        if (m_currentGuidePage == 0)
+            currentGifTex = m_gifRoll.GetCurrentTexture();
+        else if (m_currentGuidePage == 1)
+            currentGifTex = m_gifMove.GetCurrentTexture();
+        else if (m_currentGuidePage == 2)
+            currentGifTex = m_gifClash.GetCurrentTexture();
+
+        if (currentGifTex)
+        {
+            Matrix gifWorld = Matrix::CreateScale(-7.2f, 4.2f, 1.0f) * Matrix::CreateTranslation(0.0f, -0.2f, 0.0f);
+            m_effect->SetTexture(currentGifTex);
+            m_effect->SetWorld(gifWorld);
+            m_effect->SetView(orthoView);
+            m_effect->SetProjection(orthoProj);
+            m_effect->SetDiffuseColor(Vector4(1.0f, 1.0f, 1.0f, 1.0f));
+            m_effect->Apply(context);
+            context->IASetInputLayout(m_inputLayout.Get());
+            DrawQuadWithPrimitiveBatch(context);
+        }
+
+        auto leftTex = GetOrLoadTexture(device, "Left.png");
+        auto rightTex = GetOrLoadTexture(device, "Right.png");
+
+        if (leftTex)
+        {
+            float scaleMul = m_isPrevHovered ? 1.25f : 1.0f;
+            Matrix leftWorld = Matrix::CreateScale(1.3f * scaleMul, 1.3f * scaleMul, 1.0f) *
+                               Matrix::CreateTranslation(-4.5f, -0.2f, 0.0f);
+            m_effect->SetTexture(leftTex.Get());
+            m_effect->SetWorld(leftWorld);
+            m_effect->SetView(orthoView);
+            m_effect->SetProjection(orthoProj);
+            m_effect->SetDiffuseColor(m_isPrevHovered ? Vector4(1.4f, 1.4f, 1.4f, 1.0f)
+                                                      : Vector4(1.0f, 1.0f, 1.0f, 1.0f));
+            m_effect->Apply(context);
+            context->IASetInputLayout(m_inputLayout.Get());
+            DrawQuadWithPrimitiveBatch(context);
+        }
+
+        if (rightTex)
+        {
+            float scaleMul = m_isNextHovered ? 1.25f : 1.0f;
+            Matrix rightWorld = Matrix::CreateScale(1.3f * scaleMul, 1.3f * scaleMul, 1.0f) *
+                                Matrix::CreateTranslation(4.5f, -0.2f, 0.0f);
+            m_effect->SetTexture(rightTex.Get());
+            m_effect->SetWorld(rightWorld);
+            m_effect->SetView(orthoView);
+            m_effect->SetProjection(orthoProj);
+            m_effect->SetDiffuseColor(m_isNextHovered ? Vector4(1.4f, 1.4f, 1.4f, 1.0f)
+                                                      : Vector4(1.0f, 1.0f, 1.0f, 1.0f));
+            m_effect->Apply(context);
+            context->IASetInputLayout(m_inputLayout.Get());
             DrawQuadWithPrimitiveBatch(context);
         }
     }
@@ -340,7 +512,22 @@ void SelectScene::Render(GameContext& gameContext)
     context->OMSetDepthStencilState(gameContext.commonStates.DepthDefault(), 0);
     context->RSSetState(gameContext.commonStates.CullCounterClockwise());
 
-    // デバッグテキスト描画
     Imase::DebugRenderer& debugRenderer = gameContext.debugRenderer;
+
+    // ★ C2039 回避: 第2引数に Colors::White を明示してテンプレート非該当のオーバーロードを強制呼び出し
+    if (m_showRulePanel)
+    {
+        float textCenterX = screenWidth * 0.5f;
+        float textCenterY = screenHeight * 0.08f;
+
+      if (m_currentGuidePage == 0)
+            debugRenderer.DrawText({textCenterX - 110.0f, textCenterY}, DirectX::Colors::White, L"STEP 1 : ROLL DICE");
+        else if (m_currentGuidePage == 1)
+            debugRenderer.DrawText({textCenterX - 95.0f, textCenterY}, DirectX::Colors::White, L"STEP 2 : MOVE PIECE");
+        else if (m_currentGuidePage == 2)
+            debugRenderer.DrawText({textCenterX - 95.0f, textCenterY}, DirectX::Colors::White,
+                                   L"STEP 3 : CLASH / KILL");
+    }
+
     debugRenderer.Render(context, &gameContext.commonStates);
 }

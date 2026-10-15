@@ -11,8 +11,16 @@
 #endif
 #include <sdkddkver.h>
 
-// Use the C++ standard templated min/max
+//  Use the C++ standard templated min/max
 #define NOMINMAX
+
+#define WIN32_LEAN_AND_MEAN
+
+//通信用
+
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
 
 // DirectX apps don't need GDI
 #define NODRAWTEXT

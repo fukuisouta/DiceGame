@@ -85,6 +85,9 @@ private:
     // デバッグ用の描画セット
     std::unique_ptr<Imase::DebugRenderer> m_debugRenderer;
 
+    // ネットワークマネージャーの実体
+    DiceGameNetworkManager m_networkManager;
+
     // ゲームコンテキスト
     std::optional<GameContext> m_gameContext;
 

@@ -16,6 +16,8 @@
 #include "ImaseLib/DebugCamera.h"
 #include "ImaseLib/GridFloor.h"
 
+#include "Network/DiceGameNetworkManager.h"
+
 // ゲームモード定義
 enum class GameMode
 {
@@ -43,6 +45,9 @@ struct GameContext
 
     // デバッグ用の描画セット
     Imase::DebugRenderer& debugRenderer;
+
+    // ネットワークマネージャーへの参照
+    DiceGameNetworkManager& networkManager;
 
     // エディターとゲームシーン間で共有する床の色データ
     DirectX::SimpleMath::Color floorColor = DirectX::SimpleMath::Color(1.0f, 1.0f, 1.0f, 1.0f);

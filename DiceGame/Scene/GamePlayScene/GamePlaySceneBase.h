@@ -4,12 +4,14 @@
 #include <memory>
 #include <vector>
 #include <string>
-#include <format>
+#include <cwchar>
+#include <cstdarg>
 #include <wrl/client.h>
 #include <Effects.h>
 #include <PrimitiveBatch.h>
 #include <VertexTypes.h>
 #include <WICTextureLoader.h>
+#include <GeometricPrimitive.h>
 #include "ImaseLib/SceneManager.h"
 #include "GameContext.h"
 #include "../SceneId.h"
@@ -23,7 +25,6 @@
 #include "ParticleManager.h"
 #include "DiceViewer.h"
 
-// 前方宣言
 class Dice;
 
 class GamePlaySceneBase : public Imase::SceneBase<SceneId, GameContext>
@@ -36,20 +37,21 @@ public:
     void Update(Imase::ISceneController<SceneId>& sceneController, GameContext& gameContext) override;
     void Render(GameContext& gameContext) override;
 
-    // --- ヘルパーメソッド群 ---
     void TriggerTurnNotice(const std::wstring& text, float duration = 1.5f);
     void ResetMoveState();
 
-    template <typename... Args> void AddLog(const wchar_t* fmt, Args&&... args)
+    // ★ C2039/C7595 回避: vswprintf_s を使用した安全な可変長ログ関数
+    void AddLog(const wchar_t* fmt, ...)
     {
-        if constexpr (sizeof...(Args) == 0)
-            m_logManager.AddLog(fmt);
-        else
-            m_logManager.AddLog(std::vformat(fmt, std::make_wformat_args(args...)));
+        wchar_t buffer[512];
+        va_list args;
+        va_start(args, fmt);
+        vswprintf_s(buffer, _countof(buffer), fmt, args);
+        va_end(args);
+        m_logManager.AddLog(buffer);
     }
 
 protected:
-    // モード固有の拡張用ピュア仮想関数
     virtual void OnModeEnter(GameContext& gameContext) = 0;
     virtual void OnModeUpdate(float dt, GameContext& gameContext) = 0;
     virtual void OnModeRender2D(ID3D11DeviceContext* context, float screenWidth, float screenHeight,
@@ -58,9 +60,10 @@ protected:
     virtual void OnModeGridClicked(int gridX, int gridY) = 0;
 
     void LoadSceneFromJson(GameContext& gameContext, const std::string& filePath);
-    void ExecuteMove(int fromX, int fromY, int toX, int toY);
 
-    // プレビュー対象の Dice インスタンスを取得する関数
+    void ExecuteMove(int fromX, int fromY, int toX, int toY, bool isNetworkReceived = false,
+                     GameContext* gameContext = nullptr);
+
     Dice* GetTargetDiceInstance();
 
 protected:
@@ -79,7 +82,6 @@ protected:
     int m_selectedX = -1;
     int m_selectedY = -1;
 
-    // プレイ画面のカメラ位置（手前から奥を見るように Z を -20.0f に設定）
     DirectX::SimpleMath::Vector3 m_cameraEye = DirectX::SimpleMath::Vector3(0.0f, 22.0f, -20.0f);
     DirectX::SimpleMath::Vector3 m_cameraTarget = DirectX::SimpleMath::Vector3(0.0f, 0.0f, 0.0f);
     float m_cameraPitch = 48.0f;
@@ -103,11 +105,10 @@ protected:
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_diceCheckButtonTexture;
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_logButtonTexture;
 
-    // ★ 矢印ボタン用テクスチャ
-    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_arrowUpTexture;    // Flont.png (上方向)
-    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_arrowDownTexture;  // Buck.png (下方向)
-    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_arrowLeftTexture;  // Left.png
-    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_arrowRightTexture; // Right.png
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_arrowUpTexture;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_arrowDownTexture;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_arrowLeftTexture;
+    Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> m_arrowRightTexture;
 
     RECT m_rollButtonRect = {0, 0, 0, 0};
     bool m_isRollButtonHovered = false;
@@ -129,7 +130,6 @@ protected:
     std::unique_ptr<DirectX::BasicEffect> m_colorEffect;
     std::array<Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>, 4> m_diceCountTextures;
 
-    // --- ダイスチェック用メンバ ---
     DiceViewer m_diceViewer;
     RECT m_btnDiceCheckRect = {0, 0, 0, 0};
     RECT m_btnDiceCheckCloseRect = {0, 0, 0, 0};
@@ -137,4 +137,7 @@ protected:
     bool m_isDiceCheckBtnHovered = false;
     bool m_isDiceCheckCloseHovered = false;
     bool m_isDiceCheckResetHovered = false;
+
+    std::unique_ptr<DirectX::GeometricPrimitive> m_selectionMarker;
+    float m_markerAnimTimer = 0.0f;
 };

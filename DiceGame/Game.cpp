@@ -44,6 +44,9 @@ Game::~Game()
 // Initialize the Direct3D resources required to run.
 void Game::Initialize(HWND window, int width, int height)
 {
+    // Winsock２の初期化
+    m_networkManager.Initialize();
+
     m_deviceResources->SetWindow(window, width, height);
 
     m_deviceResources->CreateDeviceResources();
@@ -73,7 +76,8 @@ void Game::Initialize(HWND window, int width, int height)
         m_keyboardTracker,       // <- KeyboardTracker
         m_mouseButtonTracker,    // <- MouseButtonTracker
         *m_states,               // <- CommonStates
-        *m_debugRenderer         // <- DebugRenderer
+        *m_debugRenderer,        // <- DebugRenderer
+        m_networkManager         // <- NetworkManager&
     );
 
     // 起動シーンの設定
@@ -108,6 +112,9 @@ void Game::Update(DX::StepTimer const& timer)
     // マウスボタントラッカーの更新
     auto mouse = Mouse::Get().GetState();
     m_mouseButtonTracker.Update(mouse);
+
+    //ネットワークの毎フレーム更新
+    m_networkManager.Update();
 
     // シーンの更新
     m_sceneManager.Update(*m_gameContext);

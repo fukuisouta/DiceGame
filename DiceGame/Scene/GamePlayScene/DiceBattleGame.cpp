@@ -7,6 +7,21 @@
 using namespace DirectX;
 using namespace DirectX::SimpleMath;
 
+static Quaternion GetStepDiceQuaternion(int stepValue)
+{
+    switch (stepValue)
+    {
+        case 1:
+            return Quaternion::CreateFromAxisAngle(Vector3::UnitZ, -XM_PIDIV2);
+        case 2:
+            return Quaternion::CreateFromAxisAngle(Vector3::UnitX, -XM_PIDIV2);
+        case 3:
+            return Quaternion::Identity;
+        default:
+            return Quaternion::Identity;
+    }
+}
+
 Quaternion SnapToNearest90Degrees(const Quaternion& q)
 {
     Vector3 angles = q.ToEuler();
@@ -28,13 +43,21 @@ int GetFaceFromRotation(const Quaternion& rot)
     };
 
     static const FaceVector faces[] = {
-        {3, Vector3(0.0f, 1.0f, 0.0f)},  {4, Vector3(0.0f, -1.0f, 0.0f)}, {2, Vector3(0.0f, 0.0f, 1.0f)},
-        {5, Vector3(0.0f, 0.0f, -1.0f)}, {1, Vector3(1.0f, 0.0f, 0.0f)},  {6, Vector3(-1.0f, 0.0f, 0.0f)},
+        {3, Vector3(0.0f, 1.0f, 0.0f)},  // +Y
+        {4, Vector3(0.0f, -1.0f, 0.0f)}, // -Y
+        {2, Vector3(0.0f, 0.0f, 1.0f)},  // +Z
+        {5, Vector3(0.0f, 0.0f, -1.0f)}, // -Z
+        {1, Vector3(1.0f, 0.0f, 0.0f)},  // +X
+        {6, Vector3(-1.0f, 0.0f, 0.0f)}, // -X
     };
+
+    Quaternion normalizedRot = rot;
+    normalizedRot.Normalize();
+    Quaternion snappedRot = SnapToNearest90Degrees(normalizedRot);
 
     Vector3 worldUp = Vector3(0.0f, 1.0f, 0.0f);
     Quaternion invRot;
-    rot.Inverse(invRot);
+    snappedRot.Inverse(invRot);
     Vector3 localUp = Vector3::Transform(worldUp, invRot);
 
     float maxDot = -100.0f;
@@ -64,6 +87,8 @@ void DiceBattleGame::Initialize(ID3D11Device* device, ID3D11DeviceContext* conte
 
     m_isWaitingForRoll = false;
     m_remainingSteps = 0;
+    m_targetFixedSteps = 0;
+    m_justLandedSteps = 0;
     m_rollAnimTimer = 0.0f;
 
     m_isShielded[PlayerType::Player1] = false;
@@ -101,6 +126,11 @@ void DiceBattleGame::Initialize(ID3D11Device* device, ID3D11DeviceContext* conte
         piece.diceInstance->Initialize(device, context, modelPath);
         Vector3 initialPos = GridToWorldPosition(gx, gy);
         piece.diceInstance->SetPosition(initialPos);
+
+        piece.startRot = Quaternion::Identity;
+        piece.targetRot = Quaternion::Identity;
+        piece.diceInstance->SetRotation(Quaternion::Identity);
+
         piece.startPos = initialPos;
         piece.targetPos = initialPos;
 
@@ -120,6 +150,62 @@ void DiceBattleGame::Initialize(ID3D11Device* device, ID3D11DeviceContext* conte
     AddPiece(PlayerType::Player1, PieceType::Pawn, 8, 7);
 }
 
+void DiceBattleGame::BuildWorldSyncPacket(MsgWorldSync& outPacket) const
+{
+    outPacket.header.size = sizeof(MsgWorldSync);
+    outPacket.header.type = PacketType::SC_WorldSync;
+
+    Vector3 sPos = m_stepDice.GetPosition();
+    Quaternion sRot = m_stepDice.GetRotation();
+    outPacket.stepDiceTransform = {sPos.x, sPos.y, sPos.z, sRot.x, sRot.y, sRot.z, sRot.w};
+
+    outPacket.pieceCount = static_cast<uint8_t>(m_pieces.size());
+    for (size_t i = 0; i < m_pieces.size() && i < 10; ++i)
+    {
+        const auto& p = m_pieces[i];
+        outPacket.pieces[i].owner = static_cast<uint8_t>(p.owner);
+        outPacket.pieces[i].type = static_cast<uint8_t>(p.type);
+        outPacket.pieces[i].gridX = static_cast<int8_t>(p.gridX);
+        outPacket.pieces[i].gridY = static_cast<int8_t>(p.gridY);
+        outPacket.pieces[i].isActive = p.isActive;
+
+        if (p.diceInstance)
+        {
+            Vector3 pos = p.diceInstance->GetPosition();
+            Quaternion rot = p.diceInstance->GetRotation();
+            outPacket.pieces[i].transform = {pos.x, pos.y, pos.z, rot.x, rot.y, rot.z, rot.w};
+        }
+    }
+}
+
+void DiceBattleGame::ApplyWorldSyncFromHost(const MsgWorldSync& syncData)
+{
+    Vector3 sPos(syncData.stepDiceTransform.posX, syncData.stepDiceTransform.posY, syncData.stepDiceTransform.posZ);
+    Quaternion sRot(syncData.stepDiceTransform.rotX, syncData.stepDiceTransform.rotY, syncData.stepDiceTransform.rotZ,
+                    syncData.stepDiceTransform.rotW);
+    m_stepDice.SetPosition(sPos);
+    m_stepDice.SetRotation(sRot);
+
+    for (size_t i = 0; i < syncData.pieceCount && i < m_pieces.size(); ++i)
+    {
+        auto& p = m_pieces[i];
+        const auto& src = syncData.pieces[i];
+
+        p.gridX = src.gridX;
+        p.gridY = src.gridY;
+        p.isActive = src.isActive;
+
+        if (p.diceInstance)
+        {
+            Vector3 pos(src.transform.posX, src.transform.posY, src.transform.posZ);
+            Quaternion rot(src.transform.rotX, src.transform.rotY, src.transform.rotZ, src.transform.rotW);
+            p.diceInstance->SetPosition(pos);
+            p.diceInstance->SetRotation(rot);
+            p.targetRot = rot;
+        }
+    }
+}
+
 Vector3 DiceBattleGame::GridToWorldPosition(int gridX, int gridY) const
 {
     float cellSize = 2.0f;
@@ -134,12 +220,13 @@ Vector3 DiceBattleGame::GridToWorldPosition(int gridX, int gridY) const
 
 void DiceBattleGame::StartTurn()
 {
-    if (m_isGameOver || m_isWaitingForRoll)
+    if (m_isGameOver || m_isWaitingForRoll || m_remainingSteps > 0)
         return;
 
     m_isWaitingForRoll = true;
     m_rollAnimTimer = ROLL_ANIM_DURATION;
     m_remainingSteps = 0;
+    m_justLandedSteps = 0;
 
     float cellSize = 2.0f;
     float leftEdgeX = -(BOARD_WIDTH * cellSize * 0.5f) - 3.0f;
@@ -157,6 +244,31 @@ void DiceBattleGame::StartTurn()
     }
 
     m_stepDice.SetPosition(m_throwStartPos);
+}
+
+void DiceBattleGame::StartTurnWithSteps(int fixedSteps)
+{
+    if (m_isWaitingForRoll || m_remainingSteps > 0)
+        return;
+
+    m_targetFixedSteps = fixedSteps;
+    StartTurn();
+}
+
+// ★【実装追加】投げ直しなしで出目を即座に確定・維持する
+void DiceBattleGame::SetDiceResultImmediately(int steps)
+{
+    m_isWaitingForRoll = false;
+    m_remainingSteps = steps;
+    m_targetFixedSteps = 0;
+
+    m_stepDice.SetRotation(GetStepDiceQuaternion(steps));
+
+    float cellSize = 2.0f;
+    float edgeX = (m_currentTurn == PlayerType::Player1) ? (-(BOARD_WIDTH * cellSize * 0.5f) - 3.0f)
+                                                         : ((BOARD_WIDTH * cellSize * 0.5f) + 3.0f);
+
+    m_stepDice.SetPosition(Vector3(edgeX, 1.0f, 0.0f));
 }
 
 void DiceBattleGame::Update(float dt)
@@ -182,19 +294,27 @@ void DiceBattleGame::Update(float dt)
         }
         else
         {
-            static std::mt19937 rng(std::random_device{}());
-            std::uniform_int_distribution<int> dist(0, 3);
+            int targetVal = 0;
 
-            float rx = dist(rng) * XM_PIDIV2;
-            float ry = dist(rng) * XM_PIDIV2;
-            float rz = dist(rng) * XM_PIDIV2;
-            Quaternion finalRot = Quaternion::CreateFromYawPitchRoll(ry, rx, rz);
+            if (m_targetFixedSteps > 0)
+            {
+                targetVal = m_targetFixedSteps;
+                m_remainingSteps = targetVal;
+                m_targetFixedSteps = 0;
+            }
+            else
+            {
+                static std::mt19937 rng(std::random_device{}());
+                std::uniform_int_distribution<int> dist(1, 3);
+                targetVal = dist(rng);
+                m_remainingSteps = targetVal;
+            }
 
+            m_stepDice.SetRotation(GetStepDiceQuaternion(targetVal));
             m_stepDice.SetPosition(m_throwTargetPos);
-            m_stepDice.SetRotation(finalRot);
-
-            m_remainingSteps = m_stepDice.GetStepValue();
             m_isWaitingForRoll = false;
+
+            m_justLandedSteps = targetVal;
         }
     }
 
@@ -283,7 +403,6 @@ BoardPiece* DiceBattleGame::GetPieceAt(int x, int y)
 
 bool DiceBattleGame::MovePiece(int fromX, int fromY, int toX, int toY)
 {
-    // --- 前半の判定処理はそのまま ---
     if (m_isGameOver || m_isWaitingForRoll || m_remainingSteps <= 0)
         return false;
 
@@ -332,7 +451,6 @@ bool DiceBattleGame::MovePiece(int fromX, int fromY, int toX, int toY)
         attacker->rotProgress = 0.0f;
     }
 
-    // --- ★ 戦闘処理と移動 ---
     if (targetPiece && targetPiece->owner != m_currentTurn)
     {
         ResolveBattle(*attacker, *targetPiece, toX, toY);
@@ -343,10 +461,8 @@ bool DiceBattleGame::MovePiece(int fromX, int fromY, int toX, int toY)
         attacker->gridY = toY;
     }
 
-    // ★ 移動・戦闘が発生した直後に勝敗・引き分け判定を実行！
     CheckGameEndConditions();
 
-    // ゲームオーバーになったら歩数やターン切り替えは行わず終了
     if (m_isGameOver)
     {
         return true;
@@ -373,13 +489,11 @@ void DiceBattleGame::ResolveBattle(BoardPiece& attacker, BoardPiece& defender, i
         return;
     }
 
-    // ★ キング同士の衝突（相打ち）
     if (attacker.type == PieceType::King && defender.type == PieceType::King)
     {
         RemovePieceAt(attackerX, attackerY);
         RemovePieceAt(targetX, targetY);
 
-        // 即座に引き分け（ゲームオーバー）を確定
         m_isGameOver = true;
         m_isDraw = true;
         return;
@@ -436,9 +550,9 @@ void DiceBattleGame::ResolveBattle(BoardPiece& attacker, BoardPiece& defender, i
         RemovePieceAt(targetX, targetY);
     }
 }
+
 void DiceBattleGame::CheckGameEndConditions()
 {
-    // すでに ResolveBattle 等で引き分け/ゲームオーバーが確定している場合は維持
     if (m_isGameOver)
         return;
 
@@ -469,11 +583,6 @@ void DiceBattleGame::CheckGameEndConditions()
         }
     }
 
-    // ----------------------------------------------------
-    // 【判定1】引き分け条件
-    // ・両方のキングが死亡（相打ち・衝突など）
-    // ・または、両者ともキングしか残っていない（キング以外のコマが0）
-    // ----------------------------------------------------
     if ((!p1KingAlive && !p2KingAlive) || (p1KingAlive && p2KingAlive && p1NonKingCount == 0 && p2NonKingCount == 0))
     {
         m_isGameOver = true;
@@ -481,11 +590,6 @@ void DiceBattleGame::CheckGameEndConditions()
         return;
     }
 
-    // ----------------------------------------------------
-    // 【判定2】プレイヤー1の敗北条件
-    // ・キングが倒された
-    // ・または、キング以外のコマ数が0（キングしかコマがない）
-    // ----------------------------------------------------
     if (!p1KingAlive || p1NonKingCount == 0)
     {
         m_isGameOver = true;
@@ -494,11 +598,6 @@ void DiceBattleGame::CheckGameEndConditions()
         return;
     }
 
-    // ----------------------------------------------------
-    // 【判定3】プレイヤー2の敗北条件
-    // ・キングが倒された
-    // ・または、キング以外のコマ数が0（キングしかコマがない）
-    // ----------------------------------------------------
     if (!p2KingAlive || p2NonKingCount == 0)
     {
         m_isGameOver = true;
@@ -507,6 +606,7 @@ void DiceBattleGame::CheckGameEndConditions()
         return;
     }
 }
+
 void DiceBattleGame::RemovePieceAt(int x, int y)
 {
     for (auto& piece : m_pieces)
@@ -546,6 +646,11 @@ void DiceBattleGame::AddPieceAt(int x, int y, PlayerType owner, PieceType type, 
     piece.diceInstance->Initialize(m_device, m_context, modelPath);
     Vector3 initialPos = GridToWorldPosition(x, y);
     piece.diceInstance->SetPosition(initialPos);
+
+    piece.startRot = Quaternion::Identity;
+    piece.targetRot = Quaternion::Identity;
+    piece.diceInstance->SetRotation(Quaternion::Identity);
+
     piece.startPos = initialPos;
     piece.targetPos = initialPos;
 

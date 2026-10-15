@@ -9,6 +9,9 @@
 #include <CommonStates.h>
 #include "Dice.h"
 #include "StepDice.h"
+#include "Network/NetworkPackets.h"
+
+int GetFaceFromRotation(const DirectX::SimpleMath::Quaternion& rot);
 
 enum class PlayerType
 {
@@ -64,6 +67,14 @@ public:
                 const DirectX::SimpleMath::Matrix& proj);
 
     void StartTurn();
+    void StartTurnWithSteps(int fixedSteps);
+
+    // ★【追加】投げ直しを行わず、即座に出目を確定・表示する
+    void SetDiceResultImmediately(int steps);
+
+    void BuildWorldSyncPacket(MsgWorldSync& outPacket) const;
+    void ApplyWorldSyncFromHost(const MsgWorldSync& syncData);
+
     bool MovePiece(int fromX, int fromY, int toX, int toY);
 
     void ForceEndTurn()
@@ -86,7 +97,6 @@ public:
         return (it != m_isShielded.end()) ? it->second : false;
     }
 
-    // --- ゲームモード関連機能 ---
     bool IsAdvanceMode() const
     {
         return m_isAdvanceMode;
@@ -96,7 +106,6 @@ public:
         m_isAdvanceMode = isAdvance;
     }
 
-    // 蘇生関連機能
     bool HasDeadPiece(PlayerType player) const;
     bool RevivePieceAt(PlayerType player, int targetX, int targetY);
 
@@ -149,6 +158,22 @@ public:
     const BoardPiece* GetPieceAt(int x, int y) const;
     BoardPiece* GetPieceAt(int x, int y);
 
+    int GetPieceTopFace(const BoardPiece* piece) const
+    {
+        if (!piece || !piece->diceInstance)
+            return 1;
+        return GetFaceFromRotation(piece->targetRot);
+    }
+
+    int GetJustLandedSteps() const
+    {
+        return m_justLandedSteps;
+    }
+    void ClearJustLandedSteps()
+    {
+        m_justLandedSteps = 0;
+    }
+
     DirectX::SimpleMath::Vector3 GridToWorldPosition(int gridX, int gridY) const;
 
     void SetCursorPosition(int x, int y)
@@ -197,6 +222,9 @@ private:
     bool m_isWaitingForRoll = false;
     float m_rollAnimTimer = 0.0f;
 
+    int m_targetFixedSteps = 0;
+    int m_justLandedSteps = 0;
+
     DirectX::SimpleMath::Vector3 m_throwStartPos;
     DirectX::SimpleMath::Vector3 m_throwTargetPos;
 
@@ -206,7 +234,7 @@ private:
 
     std::unordered_map<PlayerType, bool> m_isShielded;
 
-    bool m_isAdvanceMode = true; // アドバンスモードのフラグ（標準で true または false に設定）
+    bool m_isAdvanceMode = true;
 
     int m_cursorX = 0;
     int m_cursorY = 0;

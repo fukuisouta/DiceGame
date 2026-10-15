@@ -90,7 +90,7 @@ void AdvanceGamePlayScene::OnModeRender2D(ID3D11DeviceContext* context, float sc
                                           GameContext& gameContext)
 {
     auto& debugRenderer = gameContext.debugRenderer;
-    debugRenderer.DrawText({screenWidth - 210.0f, 10.0f}, L"MODE: ADVANCE");
+  /*  debugRenderer.DrawText({screenWidth - 210.0f, 10.0f}, L"MODE: ADVANCE");*/
 
    /* if (m_skillManager.IsDestroySelecting())
         debugRenderer.DrawText({10.0f, 35.0f}, L"破壊する相手の駒を選択してください（ESCでキャンセル）");*/

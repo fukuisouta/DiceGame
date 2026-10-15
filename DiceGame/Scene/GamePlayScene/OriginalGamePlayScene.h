@@ -1,4 +1,5 @@
 ﻿#pragma once
+
 #include "GamePlaySceneBase.h"
 
 class OriginalGamePlayScene : public GamePlaySceneBase
@@ -19,4 +20,8 @@ protected:
     void OnModeGridClicked(int gridX, int gridY) override
     {
     }
+
+private:
+    // 自身が現在操作可能かどうかを判定するヘルパー
+    bool IsMyTurn(GameContext& gameContext) const;
 };

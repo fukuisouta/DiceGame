@@ -9,7 +9,8 @@
 #include <CommonStates.h>
 #include <vector>
 #include <string>
-#include <format>
+#include <cwchar>
+#include <cstdarg>
 
 namespace Imase
 {
@@ -24,26 +25,21 @@ public:
 
     void Initialize(ID3D11Device* device, ID3D11DeviceContext* context);
 
-    
     void AddLog(const std::wstring& message);
 
-   
-    template <typename... Args> void AddLogFormat(const wchar_t* fmt, Args&&... args)
+    // ★ C2039/C7595 を完全に回避する安全な AddLogFormat 実装
+    void AddLogFormat(const wchar_t* fmt, ...)
     {
-        if constexpr (sizeof...(Args) == 0)
-        {
-            AddLog(fmt);
-        }
-        else
-        {
-            std::wstring formattedMsg = std::vformat(fmt, std::make_wformat_args(args...));
-            AddLog(formattedMsg);
-        }
+        wchar_t buffer[512];
+        va_list args;
+        va_start(args, fmt);
+        vswprintf_s(buffer, _countof(buffer), fmt, args);
+        va_end(args);
+        AddLog(buffer);
     }
 
     void Update(const DirectX::Mouse::State& mouseState, float screenWidth, float screenHeight);
 
-  
     void Render(ID3D11DeviceContext* context, DirectX::CommonStates& states, Imase::DebugRenderer& debugRenderer,
                 DirectX::PrimitiveBatch<DirectX::VertexPositionColor>* batchColor, DirectX::BasicEffect* effectColor,
                 float screenWidth, float screenHeight);

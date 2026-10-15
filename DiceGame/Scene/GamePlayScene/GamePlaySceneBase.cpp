@@ -28,7 +28,6 @@ void GamePlaySceneBase::ResetMoveState()
 
 Dice* GamePlaySceneBase::GetTargetDiceInstance()
 {
-    // 1. 選択中のマスにコマがあればそれを優先
     if (m_selectedX >= 0 && m_selectedY >= 0)
     {
         const auto* piece = m_gameLogic.GetPieceAt(m_selectedX, m_selectedY);
@@ -36,7 +35,6 @@ Dice* GamePlaySceneBase::GetTargetDiceInstance()
             return piece->diceInstance.get();
     }
 
-    // 2. マウスホバー中のマスにコマがあればそれを表示
     if (m_cursorX >= 0 && m_cursorY >= 0)
     {
         const auto* piece = m_gameLogic.GetPieceAt(m_cursorX, m_cursorY);
@@ -44,7 +42,6 @@ Dice* GamePlaySceneBase::GetTargetDiceInstance()
             return piece->diceInstance.get();
     }
 
-    // 3. どちらもなければ存在する最初のコマを表示
     const auto& pieces = m_gameLogic.GetPieces();
     for (const auto& piece : pieces)
     {
@@ -107,6 +104,9 @@ void GamePlaySceneBase::OnEnter(GameContext& gameContext)
     m_colorEffect->SetTextureEnabled(false);
     m_colorEffect->SetVertexColorEnabled(true);
 
+    m_selectionMarker = DirectX::GeometricPrimitive::CreateCone(context, 0.8f, 1.0f, 12, false);
+    m_markerAnimTimer = 0.0f;
+
     DirectX::CreateWICTextureFromFile(device, L"Resources/Textures/Count1.png", nullptr,
                                       m_diceCountTextures[1].ReleaseAndGetAddressOf());
     DirectX::CreateWICTextureFromFile(device, L"Resources/Textures/Count2.png", nullptr,
@@ -120,7 +120,6 @@ void GamePlaySceneBase::OnEnter(GameContext& gameContext)
     DirectX::CreateWICTextureFromFile(device, L"Resources/Textures/LOG.png", nullptr,
                                       m_logButtonTexture.ReleaseAndGetAddressOf());
 
-    // ★ 矢印ボタン画像のロード
     DirectX::CreateWICTextureFromFile(device, L"Resources/Textures/Flont.png", nullptr,
                                       m_arrowUpTexture.ReleaseAndGetAddressOf());
     DirectX::CreateWICTextureFromFile(device, L"Resources/Textures/Back.png", nullptr,
@@ -140,16 +139,37 @@ void GamePlaySceneBase::OnEnter(GameContext& gameContext)
     m_previousTurn = m_gameLogic.GetCurrentTurn();
     m_gameLogic.SetRemainingSteps(0);
 
-    // ダイスビューワー初期化
     auto outputSize = gameContext.deviceResources.GetOutputSize();
     float screenWidth = static_cast<float>(outputSize.right - outputSize.left);
     float screenHeight = static_cast<float>(outputSize.bottom - outputSize.top);
     m_diceViewer.Initialize(screenWidth / screenHeight);
 
-    // 派生クラスの初期化呼出
+    // ★【修正】ダイスを振り直さず、受信した出目を即座に確定表示する
+    gameContext.networkManager.SetOnDiceResult(
+        [this, &gameContext](int steps)
+        {
+            bool isClient = (gameContext.networkManager.IsConnected() &&
+                             gameContext.networkManager.GetMode() == NetworkManager::Mode::Client);
+            PlayerType myPlayerType = isClient ? PlayerType::Player2 : PlayerType::Player1;
+
+            // 自ターンの返送パケット（ループバック）は無視
+            if (m_gameLogic.GetCurrentTurn() == myPlayerType)
+            {
+                return;
+            }
+
+            // 相手ターンの場合は、ダイスを投げ直さずに即座に出目を確定セット
+            m_gameLogic.SetDiceResultImmediately(steps);
+            ResetMoveState();
+            m_logManager.AddLogFormat(L"あいてがダイスを振り【%d】が出ました！", steps);
+        });
+
+    gameContext.networkManager.SetOnMovePiece([this, &gameContext](int fX, int fY, int tX, int tY)
+                                              { ExecuteMove(fX, fY, tX, tY, true, &gameContext); });
+
     OnModeEnter(gameContext);
 
-    TriggerTurnNotice(L"あなたのターン", 1.8f);
+    TriggerTurnNotice(L"ゲーム開始", 1.8f);
 }
 
 void GamePlaySceneBase::LoadSceneFromJson(GameContext& gameContext, const std::string& filePath)
@@ -200,10 +220,18 @@ void GamePlaySceneBase::LoadSceneFromJson(GameContext& gameContext, const std::s
     }
 }
 
-void GamePlaySceneBase::ExecuteMove(int fromX, int fromY, int toX, int toY)
+void GamePlaySceneBase::ExecuteMove(int fromX, int fromY, int toX, int toY, bool isNetworkReceived,
+                                    GameContext* gameContext)
 {
     PlayerType currentTurn = m_gameLogic.GetCurrentTurn();
+
+    const auto* attackerPiece = m_gameLogic.GetPieceAt(fromX, fromY);
     const auto* targetPiece = m_gameLogic.GetPieceAt(toX, toY);
+
+    int atkFace = m_gameLogic.GetPieceTopFace(attackerPiece);
+    int defFace = m_gameLogic.GetPieceTopFace(targetPiece);
+
+    bool isEnemyDefeated = (targetPiece != nullptr && targetPiece->owner != currentTurn);
 
     if (targetPiece && targetPiece->owner != currentTurn)
     {
@@ -223,8 +251,6 @@ void GamePlaySceneBase::ExecuteMove(int fromX, int fromY, int toX, int toY)
         }
     }
 
-    bool isEnemyDefeated = (targetPiece != nullptr && targetPiece->owner != currentTurn);
-
     if (m_gameLogic.MovePiece(fromX, fromY, toX, toY))
     {
         m_hasMovedThisTurn = true;
@@ -233,16 +259,29 @@ void GamePlaySceneBase::ExecuteMove(int fromX, int fromY, int toX, int toY)
         m_cursorX = toX;
         m_cursorY = toY;
 
-        // 主語の判定（プレイヤー1＝あなた、プレイヤー2＝CPU）
-        const wchar_t* actor = (currentTurn == PlayerType::Player1) ? L"あなた" : L"あいて(CPU)";
-        const wchar_t* targetName = (currentTurn == PlayerType::Player1) ? L"あいての" : L"あなたの";
+        bool isClient = (gameContext && gameContext->networkManager.IsConnected() &&
+                         gameContext->networkManager.GetMode() == NetworkManager::Mode::Client);
+        PlayerType myPlayerType = isClient ? PlayerType::Player2 : PlayerType::Player1;
+
+        const wchar_t* actor = (currentTurn == myPlayerType) ? L"あなた" : L"あいて";
+        const wchar_t* targetName = (currentTurn == myPlayerType) ? L"あいて" : L"あなた";
 
         if (isEnemyDefeated)
-            m_logManager.AddLogFormat(L"{}がコマを移動し、{}こまを撃破", actor, targetName);
+        {
+            m_logManager.AddLogFormat(L"%s[目:%d] が %s[目:%d] を撃破！", actor, atkFace, targetName, defFace);
+        }
         else
-            m_logManager.AddLogFormat(L"{}がコマを ({}, {}) へ移動", actor, toX, toY);
+        {
+            m_logManager.AddLogFormat(L"%sがコマ[目:%d] を (%d, %d) へ移動", actor, atkFace, toX, toY);
+        }
+
+        if (!isNetworkReceived && gameContext && gameContext->networkManager.IsConnected())
+        {
+            gameContext->networkManager.SendMovePiece(fromX, fromY, toX, toY);
+        }
     }
 }
+
 void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController, GameContext& gameContext)
 {
     float dt = static_cast<float>(gameContext.timer.GetElapsedSeconds());
@@ -257,9 +296,8 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
     float screenWidth = static_cast<float>(outputSize.right - outputSize.left);
     float screenHeight = static_cast<float>(outputSize.bottom - outputSize.top);
 
-    // ==========================================
-    // ★ ダイスチェック画面処理（モーダル表示中）
-    // ==========================================
+    gameContext.networkManager.DispatchPackets();
+
     if (m_diceViewer.IsOpen())
     {
         m_diceViewer.SetAspectRatio(screenWidth / screenHeight);
@@ -281,7 +319,6 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
             }
             if (m_isDiceCheckResetHovered)
             {
-                // リセット時も元のダイスの向きを引き継いでリセット
                 Dice* targetDice = GetTargetDiceInstance();
                 if (targetDice)
                     m_diceViewer.ResetCameraWithRotation(targetDice->GetRotation());
@@ -296,11 +333,9 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
             return;
         }
 
-        // ダイスチェック中はゲーム本編の操作・更新を中断
         return;
     }
 
-    // 「ダイス確認」ボタン押し判定
     m_isDiceCheckBtnHovered = (mouseState.x >= m_btnDiceCheckRect.left && mouseState.x <= m_btnDiceCheckRect.right &&
                                mouseState.y >= m_btnDiceCheckRect.top && mouseState.y <= m_btnDiceCheckRect.bottom);
 
@@ -308,7 +343,6 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
     {
         m_diceViewer.Open();
 
-        // ターゲットのダイスの現在の回転姿勢を引き継ぐ
         Dice* targetDice = GetTargetDiceInstance();
         if (targetDice)
             m_diceViewer.ResetCameraWithRotation(targetDice->GetRotation());
@@ -318,9 +352,6 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
         return;
     }
 
-    // ==========================================
-    // 通常の更新処理
-    // ==========================================
     bool isCtrlPressed = kbState.IsKeyDown(DirectX::Keyboard::Keys::LeftControl) ||
                          kbState.IsKeyDown(DirectX::Keyboard::Keys::RightControl);
 
@@ -356,9 +387,22 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
     m_cameraPitch = std::clamp(m_cameraPitch, 15.0f, 85.0f);
 
     float radPitch = DirectX::XMConvertToRadians(m_cameraPitch);
-    m_cameraEye.y = m_cameraTarget.y + m_cameraDistance * sinf(radPitch);
-    m_cameraEye.z = m_cameraTarget.z - m_cameraDistance * cosf(radPitch);
-    m_cameraEye.x = m_cameraTarget.x;
+
+    bool isClient = (gameContext.networkManager.IsConnected() &&
+                     gameContext.networkManager.GetMode() == NetworkManager::Mode::Client);
+
+    if (isClient)
+    {
+        m_cameraEye.y = m_cameraTarget.y + m_cameraDistance * sinf(radPitch);
+        m_cameraEye.z = m_cameraTarget.z + m_cameraDistance * cosf(radPitch);
+        m_cameraEye.x = m_cameraTarget.x;
+    }
+    else
+    {
+        m_cameraEye.y = m_cameraTarget.y + m_cameraDistance * sinf(radPitch);
+        m_cameraEye.z = m_cameraTarget.z - m_cameraDistance * cosf(radPitch);
+        m_cameraEye.x = m_cameraTarget.x;
+    }
 
     if (m_turnNoticeTimer > 0.0f)
     {
@@ -404,7 +448,7 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
     if (m_gameLogic.IsGameOver())
     {
         m_isGameOver = true;
-        m_isDraw = m_gameLogic.IsDraw(); // ★ 引き分け状態を取得
+        m_isDraw = m_gameLogic.IsDraw();
         m_gameOverSelectIndex = 0;
         m_winnerPlayer = m_gameLogic.GetWinner();
 
@@ -415,7 +459,7 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
         else
         {
             AddLog(m_winnerPlayer == PlayerType::Player1 ? L"ゲームエンド：あなたのしょうり"
-                                                         : L"ゲームエンド：CPUのしょうり");
+                                                         : L"ゲームエンド：あいてのしょうり");
         }
         return;
     }
@@ -426,11 +470,31 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
         return;
     }
 
-    // 派生クラス用のTurn更新前処理
     OnModeUpdate(dt, gameContext);
 
     m_gameLogic.Update(dt);
     m_field.Update(dt);
+
+    if (m_gameLogic.GetJustLandedSteps() > 0)
+    {
+        int steps = m_gameLogic.GetJustLandedSteps();
+        if (steps > 0)
+        {
+            PlayerType currentTurn = m_gameLogic.GetCurrentTurn();
+            PlayerType myPlayerType = isClient ? PlayerType::Player2 : PlayerType::Player1;
+
+            if (currentTurn == myPlayerType)
+            {
+                m_logManager.AddLogFormat(L"あなたがダイスを振り【%d】が出ました！", steps);
+
+                if (gameContext.networkManager.IsConnected())
+                {
+                    gameContext.networkManager.SendDiceResult(steps);
+                }
+            }
+        }
+        m_gameLogic.ClearJustLandedSteps();
+    }
 
     PlayerType currentTurn = m_gameLogic.GetCurrentTurn();
     if (currentTurn != m_previousTurn)
@@ -442,27 +506,20 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
         TriggerTurnNotice(currentTurn == PlayerType::Player1 ? L"あなたのターン" : L"あいてのターン", 1.5f);
     }
 
-   if (m_gameLogic.GetCurrentTurn() == PlayerType::Player2)
+    if (!gameContext.networkManager.IsConnected() && m_gameLogic.GetCurrentTurn() == PlayerType::Player2)
     {
         m_gameLogic.SetPlayerShield(PlayerType::Player2, false);
-
-        // 移動前の残り歩数を記録
         int stepsBefore = m_gameLogic.GetRemainingSteps();
 
-        // CPUの思考・移動実行
         m_ai.Update(m_gameLogic, dt);
 
-        // 歩数が減った＝CPUが移動に成功した場合にログを出力
         if (m_gameLogic.GetRemainingSteps() < stepsBefore && stepsBefore > 0)
         {
-            // 移動後のカーソル位置（または選択位置）から移動ログを出力
-            const wchar_t* actor = L"あいて(CPU)";
             AddLog(L"あいて(CPU)がコマを移動しました");
         }
     }
 
-    bool isPlayerTurn = (m_gameLogic.GetCurrentTurn() == PlayerType::Player1);
-    bool canRoll = (isPlayerTurn && !m_gameLogic.IsWaitingForRoll() && !m_gameLogic.IsGameOver());
+    bool canRoll = (!m_gameLogic.IsWaitingForRoll() && !m_gameLogic.IsGameOver());
 
     float aspectRatio = screenWidth / screenHeight;
 
@@ -477,9 +534,11 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
     Matrix view = Matrix::CreateLookAt(m_cameraEye, m_cameraTarget, Vector3(0.0f, 1.0f, 0.0f));
     Matrix proj = Matrix::CreatePerspectiveFieldOfView(XMConvertToRadians(45.0f), aspectRatio, 0.1f, 1000.0f);
 
-    if (isPlayerTurn)
+    PlayerType myPlayerType = isClient ? PlayerType::Player2 : PlayerType::Player1;
+
+    if (m_gameLogic.GetCurrentTurn() == myPlayerType)
     {
-        m_gameLogic.SetPlayerShield(PlayerType::Player1, false);
+        m_gameLogic.SetPlayerShield(myPlayerType, false);
 
         m_isRollButtonHovered = (mouseState.x >= m_rollButtonRect.left && mouseState.x <= m_rollButtonRect.right &&
                                  mouseState.y >= m_rollButtonRect.top && mouseState.y <= m_rollButtonRect.bottom);
@@ -504,7 +563,6 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
         {
             m_gameLogic.StartTurn();
             ResetMoveState();
-            AddLog(L"ダイスを振りました");
         }
 
         Vector3 nearPoint =
@@ -549,7 +607,7 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
                         hoveredGridY < DiceBattleGame::BOARD_HEIGHT)
                     {
                         const auto* piece = m_gameLogic.GetPieceAt(hoveredGridX, hoveredGridY);
-                        if (piece && piece->owner == PlayerType::Player1)
+                        if (piece && piece->owner == myPlayerType)
                         {
                             m_cursorX = hoveredGridX;
                             m_cursorY = hoveredGridY;
@@ -563,29 +621,30 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
                 if (mouseTracker.leftButton == DirectX::Mouse::ButtonStateTracker::PRESSED)
                 {
                     if (m_isUpHovered)
-                        moveDy = -1;
+                        moveDy = isClient ? 1 : -1;
                     if (m_isDownHovered)
-                        moveDy = 1;
+                        moveDy = isClient ? -1 : 1;
                     if (m_isLeftHovered)
-                        moveDx = 1;
+                        moveDx = isClient ? -1 : 1;
                     if (m_isRightHovered)
-                        moveDx = -1;
+                        moveDx = isClient ? 1 : -1;
                 }
 
                 if (!isCtrlPressed)
                 {
                     if (kb.IsKeyPressed(DirectX::Keyboard::Keys::Up) || kb.IsKeyPressed(DirectX::Keyboard::Keys::W))
-                        moveDy = -1;
+                        moveDy = isClient ? 1 : -1;
                     if (kb.IsKeyPressed(DirectX::Keyboard::Keys::Down) || kb.IsKeyPressed(DirectX::Keyboard::Keys::S))
-                        moveDy = 1;
+                        moveDy = isClient ? -1 : 1;
                     if (kb.IsKeyPressed(DirectX::Keyboard::Keys::Left) || kb.IsKeyPressed(DirectX::Keyboard::Keys::A))
-                        moveDx = 1;
+                        moveDx = isClient ? -1 : 1;
                     if (kb.IsKeyPressed(DirectX::Keyboard::Keys::Right) || kb.IsKeyPressed(DirectX::Keyboard::Keys::D))
-                        moveDx = -1;
+                        moveDx = isClient ? 1 : -1;
                 }
 
                 if (m_selectedX != -1 && (moveDx != 0 || moveDy != 0))
-                    ExecuteMove(m_selectedX, m_selectedY, m_selectedX + moveDx, m_selectedY + moveDy);
+                    ExecuteMove(m_selectedX, m_selectedY, m_selectedX + moveDx, m_selectedY + moveDy, false,
+                                &gameContext);
 
                 if (kb.IsKeyPressed(DirectX::Keyboard::Keys::Escape) || m_gameLogic.GetRemainingSteps() <= 0)
                     ResetMoveState();
@@ -594,13 +653,6 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
     }
 
     m_gameLogic.SetCursorPosition(m_cursorX, m_cursorY);
-
-    Imase::DebugRenderer& debugRenderer = gameContext.debugRenderer;
-    const wchar_t* playerStr = (m_gameLogic.GetCurrentTurn() == PlayerType::Player1) ? L"プレイヤー 1（あなた）"
-                                                                                     : L"プレイヤー 2（CPU思考中...）";
-    wchar_t turnStr[128];
-    swprintf_s(turnStr, L"ターン: %s", playerStr);
-    debugRenderer.DrawText({10.0f, 10.0f}, turnStr);
 }
 
 void GamePlaySceneBase::Render(GameContext& gameContext)
@@ -630,6 +682,31 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
             obj.primitive->Draw(world, view, proj, Colors::White);
     }
 
+    float dt = static_cast<float>(gameContext.timer.GetElapsedSeconds());
+    m_markerAnimTimer += dt;
+
+    bool isClient = (gameContext.networkManager.IsConnected() &&
+                     gameContext.networkManager.GetMode() == NetworkManager::Mode::Client);
+    PlayerType myPlayerType = isClient ? PlayerType::Player2 : PlayerType::Player1;
+
+    if (m_selectedX >= 0 && m_selectedY >= 0 && !m_diceViewer.IsOpen())
+    {
+        const auto* piece = m_gameLogic.GetPieceAt(m_selectedX, m_selectedY);
+        if (piece && piece->isActive && piece->owner == myPlayerType && m_selectionMarker)
+        {
+            Vector3 basePos = piece->targetPos;
+
+            float hoverHeight = 2.4f;
+            float wave = sinf(m_markerAnimTimer * 6.0f) * 0.15f;
+            Vector3 markerPos = basePos + Vector3(0.0f, hoverHeight + wave, 0.0f);
+
+            Matrix markerWorld = Matrix::CreateRotationZ(XM_PI) * Matrix::CreateRotationY(m_markerAnimTimer * 2.5f) *
+                                 Matrix::CreateTranslation(markerPos);
+
+            m_selectionMarker->Draw(markerWorld, view, proj, Colors::Gold);
+        }
+    }
+
     Matrix orthoProj = Matrix::CreateOrthographicOffCenter(0.0f, screenWidth, screenHeight, 0.0f, 0.0f, 1.0f);
 
     context->OMSetBlendState(gameContext.commonStates.AlphaBlend(), nullptr, 0xFFFFFFFF);
@@ -644,7 +721,6 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
     m_colorEffect->SetView(Matrix::Identity);
     m_colorEffect->SetProjection(orthoProj);
 
-    // 2Dエフェクト準備
     void const* colorByteCode;
     size_t colorByteCodeLength;
     m_colorEffect->GetVertexShaderBytecode(&colorByteCode, &colorByteCodeLength);
@@ -661,34 +737,24 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
         VertexPositionTexture::InputElements, VertexPositionTexture::InputElementCount, shaderByteCode, byteCodeLength,
         inputLayout.GetAddressOf());
 
-    // 派生クラスのUI・2D描画
     OnModeRender2D(context, screenWidth, screenHeight, gameContext);
 
-    // ログマネージャーのレンダリング（背景ウィンドウとテキスト）
     m_logManager.Render(context, gameContext.commonStates, gameContext.debugRenderer, m_colorPrimitiveBatch.get(),
                         m_colorEffect.get(), screenWidth, screenHeight);
-    // ==========================================
-    // ★ 画面上部UIボタン描画（LOG / ダイス確認）
-    // ==========================================
-    // GamePlaySceneBase.cpp の Render 内
 
     if (!m_diceViewer.IsOpen() && !m_isGameOver)
     {
-        // ★ 全UIボタン共通のサイズ設定
-        float topBtnW = 180.0f; // 拡大後の統一サイズ（幅）
-        float topBtnH = 100.0f; // 拡大後の統一サイズ（高さ）
-        float margin = 20.0f;   // 画面端からの余白
+        float topBtnW = 180.0f;
+        float topBtnH = 100.0f;
+        float margin = 20.0f;
 
-        // 1. 左上：ダイスチェックボタン
         m_btnDiceCheckRect = {static_cast<LONG>(margin), static_cast<LONG>(margin), static_cast<LONG>(margin + topBtnW),
                               static_cast<LONG>(margin + topBtnH)};
 
-        // 2. 右上：LOGボタン
         RECT logRect = {static_cast<LONG>(screenWidth - topBtnW - margin), static_cast<LONG>(margin),
                         static_cast<LONG>(screenWidth - margin), static_cast<LONG>(margin + topBtnH)};
-        m_logManager.SetButtonRect(logRect); // LogManagerへ統一RECTをセット
+        m_logManager.SetButtonRect(logRect);
 
-        // ★ 共通テクスチャ描画処理
         auto DrawTextureButton = [&](ID3D11ShaderResourceView* tex, const RECT& rect, bool isHovered)
         {
             if (!tex)
@@ -696,7 +762,7 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
 
             float baseW = static_cast<float>(rect.right - rect.left);
             float baseH = static_cast<float>(rect.bottom - rect.top);
-            float scale = isHovered ? 1.05f : 1.0f; // ホバー時拡大
+            float scale = isHovered ? 1.05f : 1.0f;
 
             float bWidth = baseW * scale;
             float bHeight = baseH * scale;
@@ -718,15 +784,11 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
             m_primitiveBatch->End();
         };
 
-        // 描画実行
         DrawTextureButton(m_diceCheckButtonTexture.Get(), m_btnDiceCheckRect, m_isDiceCheckBtnHovered);
         DrawTextureButton(m_logButtonTexture.Get(), logRect, m_logManager.IsButtonHovered());
     }
-  
- // ==========================================
-    // ★ 矢印ボタン描画（正方形アスペクト比で描画）
-    // ==========================================
-    bool canControlPiece = (m_gameLogic.GetCurrentTurn() == PlayerType::Player1) && !m_gameLogic.IsWaitingForRoll() &&
+
+    bool canControlPiece = (m_gameLogic.GetCurrentTurn() == myPlayerType) && !m_gameLogic.IsWaitingForRoll() &&
                            (m_gameLogic.GetRemainingSteps() > 0) && !m_gameLogic.IsAnyPieceMoving();
     if (canControlPiece && !m_diceViewer.IsOpen())
     {
@@ -736,7 +798,6 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
 
         bool isSelected = (m_selectedX != -1);
 
-        // 幅(w) と 高さ(h) を受け取って描画するラムダ式
         auto DrawArrowButton = [&](ID3D11ShaderResourceView* tex, bool isHovered, float baseW, float baseH, float cx,
                                    float cy, RECT& outRect)
         {
@@ -767,7 +828,6 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
             }
         };
 
-        // ★ ボタンサイズを正方形(1:1)に統一して歪みを解消
         float buttonSize = 85.0f;
         float offsetDistance = buttonSize * 0.85f + spacing;
 
@@ -784,9 +844,8 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
                         arrowCenterX + offsetDistance, arrowCenterY, m_btnRightRect);
     }
 
-    // ダイスボタン
     context->IASetInputLayout(inputLayout.Get());
-    bool canRoll = (m_gameLogic.GetCurrentTurn() == PlayerType::Player1 && !m_gameLogic.IsWaitingForRoll() &&
+    bool canRoll = (m_gameLogic.GetCurrentTurn() == myPlayerType && !m_gameLogic.IsWaitingForRoll() &&
                     !m_gameLogic.IsGameOver() && m_gameLogic.GetRemainingSteps() == 0);
     if (canRoll && m_rollDiceButtonTexture && !m_diceViewer.IsOpen())
     {
@@ -810,11 +869,9 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
         m_primitiveBatch->End();
     }
 
-    // パーティクル
     context->IASetInputLayout(colorInputLayout.Get());
     m_particleManager.Render(context, m_colorPrimitiveBatch.get(), m_colorEffect.get());
 
-    // ターン告知
     if (m_turnNoticeTimer > 0.0f && !m_turnNoticeText.empty() && !m_diceViewer.IsOpen())
     {
         float textX = (screenWidth * 0.5f) - (static_cast<float>(m_turnNoticeText.length()) * 8.0f);
@@ -831,15 +888,11 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
         m_colorPrimitiveBatch->DrawTriangle(bgV2, bgV1, bgV3);
         m_colorPrimitiveBatch->End();
 
-        gameContext.debugRenderer.DrawText({textX, textY}, m_turnNoticeText.c_str());
+        gameContext.debugRenderer.DrawText({textX, textY}, DirectX::Colors::White, m_turnNoticeText.c_str());
     }
 
-    // ==========================================
-    // ★ ダイスチェックモーダル画面
-    // ==========================================
     if (m_diceViewer.IsOpen())
     {
-        // 1. 背景の暗転（半透明オーバーレイ）
         context->IASetInputLayout(colorInputLayout.Get());
         m_colorEffect->Apply(context);
         m_colorPrimitiveBatch->Begin();
@@ -851,7 +904,6 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
         m_colorPrimitiveBatch->DrawTriangle(bg0, bg1, bg2);
         m_colorPrimitiveBatch->DrawTriangle(bg2, bg1, bg3);
 
-        // 2. ボタンUI (閉じる / 視点リセット)
         m_btnDiceCheckResetRect = {static_cast<LONG>(screenWidth - 270), 30, static_cast<LONG>(screenWidth - 150), 70};
         m_btnDiceCheckCloseRect = {static_cast<LONG>(screenWidth - 130), 30, static_cast<LONG>(screenWidth - 10), 70};
 
@@ -874,20 +926,20 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
         DrawBox(m_btnDiceCheckCloseRect, closeCol);
         m_colorPrimitiveBatch->End();
 
-        // 3. UIテキスト描画
-        gameContext.debugRenderer.DrawText({30.0f, 30.0f}, L"【ダイスチェックモード】");
-        gameContext.debugRenderer.DrawText({30.0f, 60.0f}, L"ドラッグ: 自由回転 | ホイール: 拡大・縮小");
-        gameContext.debugRenderer.DrawText({static_cast<float>(screenWidth - 250), 40.0f}, L"視点リセット");
-        gameContext.debugRenderer.DrawText({static_cast<float>(screenWidth - 100), 40.0f}, L"閉じる");
+        gameContext.debugRenderer.DrawText({30.0f, 30.0f}, DirectX::Colors::White, L"【ダイスチェックモード】");
+        gameContext.debugRenderer.DrawText({30.0f, 60.0f}, DirectX::Colors::White,
+                                           L"ドラッグ: 自由回転 | ホイール: 拡大・縮小");
+        gameContext.debugRenderer.DrawText({static_cast<float>(screenWidth - 250), 40.0f}, DirectX::Colors::White,
+                                           L"リセット");
+        gameContext.debugRenderer.DrawText({static_cast<float>(screenWidth - 100), 40.0f}, DirectX::Colors::White,
+                                           L"閉じる");
 
-        // 4. 中央でのダイス3D描画（選択中のコマのプレビュー）
         context->OMSetDepthStencilState(gameContext.commonStates.DepthDefault(), 0);
 
         Matrix viewerView = m_diceViewer.GetViewMatrix();
         Matrix viewerProj = m_diceViewer.GetProjectionMatrix();
         Matrix viewerWorld = m_diceViewer.GetWorldMatrix();
 
-        // 選択されたコマ（またはホバー中・最初のコマ）を取得して描画
         Dice* targetDice = GetTargetDiceInstance();
         if (targetDice)
         {
@@ -895,7 +947,6 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
         }
     }
 
-    // リザルトダイアログ
     if (m_isGameOver)
     {
         context->IASetInputLayout(colorInputLayout.Get());
@@ -943,17 +994,16 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
             m_colorPrimitiveBatch->DrawTriangle(v2, v1, v3);
         };
 
-       DrawBox(btnX, btnY1, btnW, btnH, col1);
+        DrawBox(btnX, btnY1, btnW, btnH, col1);
         DrawBox(btnX, btnY2, btnW, btnH, col2);
         m_colorPrimitiveBatch->End();
 
-        // ★ テキストの判定を変更
         const wchar_t* resultStr = L"";
         if (m_isDraw)
         {
             resultStr = L"DRAW";
         }
-        else if (m_winnerPlayer == PlayerType::Player1)
+        else if (m_winnerPlayer == myPlayerType)
         {
             resultStr = L"YOU WIN!";
         }
@@ -962,11 +1012,9 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
             resultStr = L"YOU LOSE...";
         }
 
-        // 表示位置も少し調整（DRAWなどの文字長さに応じて）
         float textOffsetX = m_isDraw ? 150.0f : 130.0f;
-        gameContext.debugRenderer.DrawText({dialogX + textOffsetX, dialogY + 30.0f}, resultStr);
-        gameContext.debugRenderer.DrawText({btnX + 65.0f, btnY1 + 12.0f}, L"再戦");
-        gameContext.debugRenderer.DrawText({btnX + 55.0f, btnY2 + 12.0f}, L"タイトルへ");
+        gameContext.debugRenderer.DrawText({dialogX + textOffsetX, dialogY + 30.0f}, DirectX::Colors::White, resultStr);
+        gameContext.debugRenderer.DrawText({btnX + 65.0f, btnY1 + 12.0f}, DirectX::Colors::White, L"再戦");
+        gameContext.debugRenderer.DrawText({btnX + 55.0f, btnY2 + 12.0f}, DirectX::Colors::White, L"タイトルへ");
     }
-    
 }

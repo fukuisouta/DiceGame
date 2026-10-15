@@ -1,6 +1,7 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "TitleScene.h"
 #include "Framework/SceneSerializer.h"
+#include "Network/NetworkPackets.h"
 #include <algorithm>
 
 using namespace DirectX;
@@ -141,6 +142,25 @@ Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> TitleScene::GetOrLoadTexture(ID
 
 void TitleScene::Update(Imase::ISceneController<SceneId>& sceneController, GameContext& gameContext)
 {
+    // ★ クライアント側の受信監視（ホストからゲーム開始通知が届いたら連動して遷移）
+    if (gameContext.networkManager.IsConnected())
+    {
+        std::vector<uint8_t> packet;
+        while (gameContext.networkManager.PopPacket(packet))
+        {
+            if (packet.size() < sizeof(PacketHeader))
+                continue;
+            PacketHeader* header = reinterpret_cast<PacketHeader*>(packet.data());
+
+            if (header->type == PacketType::CS_StartGame)
+            {
+                // ホストからの合図を受け取ってモード選択画面へ遷移
+                sceneController.RequestSwitch(SceneId::SelectScene);
+                return;
+            }
+        }
+    }
+
     // ★ Tab + E キーでエディターシーンへ移動
     auto kbState = DirectX::Keyboard::Get().GetState();
     if (kbState.IsKeyDown(DirectX::Keyboard::Keys::Tab) && kbState.IsKeyDown(DirectX::Keyboard::Keys::E))
@@ -211,6 +231,16 @@ void TitleScene::Update(Imase::ISceneController<SceneId>& sceneController, GameC
     {
         if (m_isStartHovered)
         {
+            // ★ ホスト接続中であれば、クライアントへ対戦開始通知パケットを送信
+            if (gameContext.networkManager.IsConnected() &&
+                gameContext.networkManager.GetMode() == NetworkManager::Mode::Host)
+            {
+                PacketHeader msg{};
+                msg.size = sizeof(PacketHeader);
+                msg.type = PacketType::CS_StartGame;
+                gameContext.networkManager.SendPacket(&msg, sizeof(msg));
+            }
+
             sceneController.RequestSwitch(SceneId::SelectScene);
         }
         else if (m_isExitHovered)
@@ -342,6 +372,9 @@ void TitleScene::Render(GameContext& gameContext)
     context->OMSetBlendState(gameContext.commonStates.Opaque(), nullptr, 0xFFFFFFFF);
     context->OMSetDepthStencilState(gameContext.commonStates.DepthDefault(), 0);
     context->RSSetState(gameContext.commonStates.CullCounterClockwise());
+
+    // ネットワークロビーUIの描画
+    m_networkUI.Render(gameContext);
 
     // デバッグテキスト描画
     Imase::DebugRenderer& debugRenderer = gameContext.debugRenderer;
