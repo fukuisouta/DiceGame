@@ -9,7 +9,7 @@
             "modelName": "Title.png",
             "position": [
                 0.0,
-                1.600000023841858,
+                2.0,
                 0.0
             ],
             "rigidBody": {
@@ -37,10 +37,10 @@
                 1.0,
                 1.0
             ],
-            "modelName": "START.png",
+            "modelName": "SOLO.png",
             "position": [
                 0.0,
-                -1.399999976158142,
+                -0.6000000238418579,
                 0.0
             ],
             "rigidBody": {
@@ -60,7 +60,38 @@
                 2.0,
                 0.20000000298023224
             ],
-            "tag": "StartButton"
+            "tag": "SoloButton"
+        },
+        {
+            "collisionScale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "modelName": "MULTI.png",
+            "position": [
+                0.0,
+                -2.0,
+                0.0
+            ],
+            "rigidBody": {
+                "damping": 0.9800000190734863,
+                "enabled": false,
+                "isStatic": false,
+                "mass": 1.0,
+                "useGravity": true
+            },
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                -4.0,
+                2.0,
+                0.20000000298023224
+            ],
+            "tag": "MultiButton"
         },
         {
             "collisionScale": [
@@ -71,7 +102,7 @@
             "modelName": "EXIT.png",
             "position": [
                 0.0,
-                -3.200000047683716,
+                -3.4000000953674316,
                 0.0
             ],
             "rigidBody": {

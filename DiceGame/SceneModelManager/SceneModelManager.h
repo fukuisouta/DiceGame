@@ -10,17 +10,26 @@
 #include <CommonStates.h>
 #include "Framework/ObjectData.h"
 
+// ============================================================================
+// JSONデータからのステージモデル自動ロード・配置・レイアウト描画管理クラス
+// ============================================================================
 class SceneModelManager
 {
 public:
     SceneModelManager() = default;
     ~SceneModelManager() = default;
 
+    // Direct3D11デバイスおよびエフェクトファクトリの初期化
     void Initialize(ID3D11Device* device);
+
+    // 指定されたパスのJSONファイルから配置オブジェクト情報を読み込み・3Dモデルの生成を行う
     bool LoadFromJson(ID3D11Device* device, const std::string& filePath);
+
+    // 配置されたすべての3Dモデルを一括描画する
     void Render(ID3D11DeviceContext* context, DirectX::CommonStates& states, const DirectX::SimpleMath::Matrix& view,
                 const DirectX::SimpleMath::Matrix& projection);
 
+    // --- ゲッター / ユーティリティ ---
     std::vector<PlacedObject>& GetPlacedObjects()
     {
         return m_placedObjects;
@@ -29,12 +38,14 @@ public:
     {
         return m_placedObjects;
     }
+
+    // 読み込まれたオブジェクトリストのクリア
     void Clear()
     {
         m_placedObjects.clear();
     }
 
-    // Tag名からオブジェクトを検索
+    // タグ名指定による配置オブジェクトの検索
     const PlacedObject* FindObjectByTag(const std::string& tag) const
     {
         for (const auto& obj : m_placedObjects)
@@ -45,7 +56,7 @@ public:
         return nullptr;
     }
 
-    // AABB（Bounding Box）を取得
+    // 指定タグのオブジェクトの軸平行境界ボックス（AABB）の算出
     bool GetObjectAABB(const std::string& tag, DirectX::SimpleMath::Vector3& outMin,
                        DirectX::SimpleMath::Vector3& outMax) const
     {
@@ -60,6 +71,6 @@ public:
     }
 
 private:
-    std::vector<PlacedObject> m_placedObjects;
-    std::unique_ptr<DirectX::EffectFactory> m_fxFactory;
+    std::vector<PlacedObject> m_placedObjects;           // 配置されたオブジェクト群のリスト
+    std::unique_ptr<DirectX::EffectFactory> m_fxFactory; // モデル用の共通エフェクトファクトリ
 };

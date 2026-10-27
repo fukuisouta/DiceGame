@@ -19,5 +19,6 @@ enum class SceneId : uint8_t
     EditorScene,
     //GamePlayScene
     OriginalGamePlayScene, 
-    AdvanceGamePlayScene   
+    AdvanceGamePlayScene ,
+    LobbyScene
 };

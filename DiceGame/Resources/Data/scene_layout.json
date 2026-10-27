@@ -9,7 +9,7 @@
             "modelName": "Board.cmo",
             "position": [
                 0.0,
-                -0.20000000298023224,
+                -0.699999988079071,
                 0.0
             ],
             "rigidBody": {
@@ -29,7 +29,7 @@
                 1.0,
                 18.0
             ],
-            "tag": "Default"
+            "tag": "Canera"
         },
         {
             "collisionScale": [

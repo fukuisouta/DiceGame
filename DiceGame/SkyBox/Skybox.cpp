@@ -1,6 +1,6 @@
 #include "Skybox.h"
 #include <d3dcompiler.h>
-#include "DDSTextureLoader.h" // DDS形式のキューブマップ読み込みライブラリ
+#include "DDSTextureLoader.h" 
 
 using namespace DirectX;
 
@@ -122,7 +122,7 @@ bool Skybox::Initialize(ID3D11Device* device, const wchar_t* cubeMapTexturePath)
         return false;
 
     // =================================================================
-    // 7. ★重要★ 奥行き判定（Zテスト）の設定
+    // 7. 奥行き判定（Zテスト）の設定
     // =================================================================
     D3D11_DEPTH_STENCIL_DESC dsd = {};
     dsd.DepthEnable = TRUE;
@@ -147,7 +147,7 @@ void Skybox::Render(ID3D11DeviceContext* context, const XMFLOAT4X4& viewMatrix, 
                     const XMFLOAT3& cameraPosition)
 {
     // =================================================================
-    // ★最も重要★ スカイボックスを「現在のカメラ位置」に追従させる
+    // スカイボックスを「現在のカメラ位置」に追従させる
     // これにより、どれだけカメラが移動しても「空の箱の中心」に居続けるため、外に出られなくなります。
     // =================================================================
     XMMATRIX world = XMMatrixTranslation(cameraPosition.x, cameraPosition.y, cameraPosition.z);

@@ -154,6 +154,37 @@
                 0.20000000298023224
             ],
             "tag": "TitleLogo"
+        },
+        {
+            "collisionScale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "modelName": "GUIDE.png",
+            "position": [
+                6.199999809265137,
+                4.300000190734863,
+                0.0
+            ],
+            "rigidBody": {
+                "damping": 0.9800000190734863,
+                "enabled": false,
+                "isStatic": false,
+                "mass": 1.0,
+                "useGravity": true
+            },
+            "rotation": [
+                0.0,
+                -157.0,
+                0.0
+            ],
+            "scale": [
+                2.549999952316284,
+                1.100000023841858,
+                0.20000000298023224
+            ],
+            "tag": "TitleLogo"
         }
     ]
 }

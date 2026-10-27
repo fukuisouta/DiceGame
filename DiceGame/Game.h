@@ -13,6 +13,7 @@
 #include "ImaseLib/SceneManager.h"
 #include "GameContext.h"
 #include "Scene/SceneId.h"
+#include "Framework/SoundManager.h"
 
 // A basic game implementation that creates a D3D11 device and
 // provides a game loop.

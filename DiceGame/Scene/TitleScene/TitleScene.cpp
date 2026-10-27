@@ -2,6 +2,7 @@
 #include "TitleScene.h"
 #include "Framework/SceneSerializer.h"
 #include "Network/NetworkPackets.h"
+
 #include <algorithm>
 
 using namespace DirectX;
@@ -9,6 +10,7 @@ using namespace DirectX::SimpleMath;
 
 namespace
 {
+    // 3Dオブジェクトの有向境界ボックス（AABB）を投影しスクリーンの2D領域（RECT）に変換するヘルパー関数
     RECT ProjectAABBToScreen(const Vector3& minBounds, const Vector3& maxBounds, const Matrix& view, const Matrix& proj,
                              float screenWidth, float screenHeight)
     {
@@ -46,8 +48,11 @@ namespace
     }
 }
 
+// シーン切り替え時の初期化処理
 void TitleScene::OnEnter(GameContext& gameContext)
 {
+    SoundManager::GetInstance().PlayBGM(BGMType::Title, true);
+
     ID3D11Device* device = gameContext.deviceResources.GetD3DDevice();
     ID3D11DeviceContext* context = gameContext.deviceResources.GetD3DDeviceContext();
 
@@ -68,6 +73,11 @@ void TitleScene::OnEnter(GameContext& gameContext)
                               VertexPositionNormalTexture::InputElementCount, shaderByteCode, byteCodeLength,
                               m_inputLayout.ReleaseAndGetAddressOf());
 
+    // ★ パーティクルマネージャーの初期化とクリア
+    m_particleManager.Initialize(device, context);
+    m_particleManager.Clear();
+
+    // JSON配置データのロード
     SceneData loadedData;
     m_placedObjects.clear();
 
@@ -98,8 +108,11 @@ void TitleScene::OnEnter(GameContext& gameContext)
     }
 }
 
+// 2D画像表示用の単位クワッドポリゴンを描画
 void TitleScene::DrawQuadWithPrimitiveBatch(ID3D11DeviceContext* context, const Matrix& world)
 {
+    (void)context;
+    (void)world;
     VertexPositionNormalTexture v1(XMFLOAT3(-0.5f, 0.5f, 0.0f), XMFLOAT3(0, 0, -1), XMFLOAT2(0.0f, 0.0f));
     VertexPositionNormalTexture v2(XMFLOAT3(0.5f, 0.5f, 0.0f), XMFLOAT3(0, 0, -1), XMFLOAT2(1.0f, 0.0f));
     VertexPositionNormalTexture v3(XMFLOAT3(-0.5f, -0.5f, 0.0f), XMFLOAT3(0, 0, -1), XMFLOAT2(0.0f, 1.0f));
@@ -111,6 +124,7 @@ void TitleScene::DrawQuadWithPrimitiveBatch(ID3D11DeviceContext* context, const 
     m_primitiveBatch->End();
 }
 
+// テクスチャリソースの検索・ロード・キャッシュ処理
 Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> TitleScene::GetOrLoadTexture(ID3D11Device* device,
                                                                               const std::string& texName)
 {
@@ -140,28 +154,16 @@ Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> TitleScene::GetOrLoadTexture(ID
     return nullptr;
 }
 
+// 毎フレームのロジック・判定更新
 void TitleScene::Update(Imase::ISceneController<SceneId>& sceneController, GameContext& gameContext)
 {
-    // ★ クライアント側の受信監視（ホストからゲーム開始通知が届いたら連動して遷移）
-    if (gameContext.networkManager.IsConnected())
-    {
-        std::vector<uint8_t> packet;
-        while (gameContext.networkManager.PopPacket(packet))
-        {
-            if (packet.size() < sizeof(PacketHeader))
-                continue;
-            PacketHeader* header = reinterpret_cast<PacketHeader*>(packet.data());
+    float dt = static_cast<float>(gameContext.timer.GetElapsedSeconds());
+    SoundManager::GetInstance().Update();
 
-            if (header->type == PacketType::CS_StartGame)
-            {
-                // ホストからの合図を受け取ってモード選択画面へ遷移
-                sceneController.RequestSwitch(SceneId::SelectScene);
-                return;
-            }
-        }
-    }
+    // ★ パーティクルの物理・寿命更新
+    m_particleManager.Update(dt);
 
-    // ★ Tab + E キーでエディターシーンへ移動
+    // Tab + E キーでエディターシーンへ移動
     auto kbState = DirectX::Keyboard::Get().GetState();
     if (kbState.IsKeyDown(DirectX::Keyboard::Keys::Tab) && kbState.IsKeyDown(DirectX::Keyboard::Keys::E))
     {
@@ -174,75 +176,70 @@ void TitleScene::Update(Imase::ISceneController<SceneId>& sceneController, GameC
     float screenHeight = static_cast<float>(outputSize.bottom - outputSize.top);
     float aspectRatio = screenWidth / screenHeight;
 
-    // EditorScene と寸法を完全一致させた Orthographic カメラ
     Matrix view = Matrix::CreateLookAt(Vector3(0.0f, 0.0f, -10.0f), Vector3::Zero, Vector3::Up);
     float orthoHeight = 10.0f;
     float orthoWidth = orthoHeight * aspectRatio;
     Matrix projection = Matrix::CreateOrthographic(orthoWidth, orthoHeight, 0.1f, 1000.0f);
 
-    bool foundStart = false;
-    bool foundExit = false;
-
+    // 配置オブジェクトタグからUIボタン領域を画面上に投影
     for (const auto& obj : m_placedObjects)
     {
         std::string nameLower = obj.cmoFileName;
         std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
 
-        if (obj.tag == "StartButton" || nameLower.find("start") != std::string::npos)
+        if (obj.tag == "SoloButton" || obj.tag == "StartButton" || nameLower.find("solo") != std::string::npos ||
+            nameLower.find("start") != std::string::npos)
         {
             Vector3 minB = obj.position - (obj.scale * 0.5f);
             Vector3 maxB = obj.position + (obj.scale * 0.5f);
-            m_startBtnRect = ProjectAABBToScreen(minB, maxB, view, projection, screenWidth, screenHeight);
-            foundStart = true;
+            m_soloBtnRect = ProjectAABBToScreen(minB, maxB, view, projection, screenWidth, screenHeight);
+        }
+        else if (obj.tag == "MultiButton" || nameLower.find("multi") != std::string::npos)
+        {
+            Vector3 minB = obj.position - (obj.scale * 0.5f);
+            Vector3 maxB = obj.position + (obj.scale * 0.5f);
+            m_multiBtnRect = ProjectAABBToScreen(minB, maxB, view, projection, screenWidth, screenHeight);
         }
         else if (obj.tag == "ExitButton" || nameLower.find("exit") != std::string::npos)
         {
             Vector3 minB = obj.position - (obj.scale * 0.5f);
             Vector3 maxB = obj.position + (obj.scale * 0.5f);
             m_exitBtnRect = ProjectAABBToScreen(minB, maxB, view, projection, screenWidth, screenHeight);
-            foundExit = true;
         }
-    }
-
-    if (!foundStart)
-    {
-        float centerX = screenWidth * 0.5f, startY = screenHeight * 0.60f;
-        m_startBtnRect = {static_cast<LONG>(centerX - 100.0f), static_cast<LONG>(startY - 25.0f),
-                          static_cast<LONG>(centerX + 100.0f), static_cast<LONG>(startY + 25.0f)};
-    }
-    if (!foundExit)
-    {
-        float centerX = screenWidth * 0.5f, exitY = screenHeight * 0.72f;
-        m_exitBtnRect = {static_cast<LONG>(centerX - 100.0f), static_cast<LONG>(exitY - 25.0f),
-                         static_cast<LONG>(centerX + 100.0f), static_cast<LONG>(exitY + 25.0f)};
     }
 
     auto mouseState = DirectX::Mouse::Get().GetState();
     static DirectX::Mouse::ButtonStateTracker mouseTracker;
     mouseTracker.Update(mouseState);
 
-    m_isStartHovered = (mouseState.x >= m_startBtnRect.left && mouseState.x <= m_startBtnRect.right &&
-                        mouseState.y >= m_startBtnRect.top && mouseState.y <= m_startBtnRect.bottom);
+    // マウスホバー判定
+    m_isSoloHovered = (mouseState.x >= m_soloBtnRect.left && mouseState.x <= m_soloBtnRect.right &&
+                       mouseState.y >= m_soloBtnRect.top && mouseState.y <= m_soloBtnRect.bottom);
+
+    m_isMultiHovered = (mouseState.x >= m_multiBtnRect.left && mouseState.x <= m_multiBtnRect.right &&
+                        mouseState.y >= m_multiBtnRect.top && mouseState.y <= m_multiBtnRect.bottom);
 
     m_isExitHovered = (mouseState.x >= m_exitBtnRect.left && mouseState.x <= m_exitBtnRect.right &&
                        mouseState.y >= m_exitBtnRect.top && mouseState.y <= m_exitBtnRect.bottom);
 
+    // クリック時の各種画面遷移処理およびパーティクル発生
     if (mouseTracker.leftButton == DirectX::Mouse::ButtonStateTracker::PRESSED)
     {
-        if (m_isStartHovered)
-        {
-            // ★ ホスト接続中であれば、クライアントへ対戦開始通知パケットを送信
-            if (gameContext.networkManager.IsConnected() &&
-                gameContext.networkManager.GetMode() == NetworkManager::Mode::Host)
-            {
-                PacketHeader msg{};
-                msg.size = sizeof(PacketHeader);
-                msg.type = PacketType::CS_StartGame;
-                gameContext.networkManager.SendPacket(&msg, sizeof(msg));
-            }
+        // ★ 画面クリック座標にパーティクルを発生
+        m_particleManager.SpawnClickParticles(static_cast<float>(mouseState.x), static_cast<float>(mouseState.y), 20);
 
+        // 1. ソロボタン -> 選択画面（SelectScene）へ直行
+        if (m_isSoloHovered)
+        {
+            gameContext.networkManager.Shutdown();
             sceneController.RequestSwitch(SceneId::SelectScene);
         }
+        // 2. マルチボタン -> ロビー画面（LobbyScene）へ遷移
+        else if (m_isMultiHovered)
+        {
+            sceneController.RequestSwitch(SceneId::LobbyScene);
+        }
+        // 3. EXITボタン -> ゲーム終了
         else if (m_isExitHovered)
         {
             PostQuitMessage(0);
@@ -250,6 +247,7 @@ void TitleScene::Update(Imase::ISceneController<SceneId>& sceneController, GameC
     }
 }
 
+// レンダリング描画処理
 void TitleScene::Render(GameContext& gameContext)
 {
     ID3D11Device* device = gameContext.deviceResources.GetD3DDevice();
@@ -260,10 +258,7 @@ void TitleScene::Render(GameContext& gameContext)
     float screenHeight = static_cast<float>(outputSize.bottom - outputSize.top);
     float aspectRatio = screenWidth / screenHeight;
 
-    // ==========================================
-    // レイヤー 1: 3Dワールド空間（Perspective）
-    // スカイドーム等の 3Dモデルを描画
-    // ==========================================
+    // レイヤー 1: 3D背景の描画
     Vector3 cameraPos = Vector3(0.0f, 0.0f, -10.0f);
     Matrix perspectiveView = Matrix::CreateLookAt(cameraPos, Vector3::Zero, Vector3::Up);
     Matrix perspectiveProj =
@@ -275,7 +270,7 @@ void TitleScene::Render(GameContext& gameContext)
     for (const auto& obj : m_placedObjects)
     {
         if (!obj.model)
-            continue; // 3Dモデル以外はスキップ
+            continue;
 
         std::string tagLower = obj.tag;
         std::string nameLower = obj.cmoFileName;
@@ -318,10 +313,7 @@ void TitleScene::Render(GameContext& gameContext)
         obj.model->Draw(context, gameContext.commonStates, localWorld, perspectiveView, perspectiveProj);
     }
 
-    // ==========================================
-    // レイヤー 2: 2D Canvas UI（Orthographic）
-    // 3D背景描画後に深度バッファをクリアし、UIを最前面に描画
-    // ==========================================
+    // レイヤー 2: 2D UI要素（正射影）の描画
     context->ClearDepthStencilView(gameContext.deviceResources.GetDepthStencilView(), D3D11_CLEAR_DEPTH, 1.0f, 0);
 
     Matrix orthoView = Matrix::CreateLookAt(Vector3(0.0f, 0.0f, -10.0f), Vector3::Zero, Vector3::Up);
@@ -336,7 +328,12 @@ void TitleScene::Render(GameContext& gameContext)
     for (const auto& obj : m_placedObjects)
     {
         if (obj.model)
-            continue; // 3Dモデルはレイヤー1で描画済み
+            continue;
+
+        std::string tagLower = obj.tag;
+        std::string nameLower = obj.cmoFileName;
+        std::transform(tagLower.begin(), tagLower.end(), tagLower.begin(), ::tolower);
+        std::transform(nameLower.begin(), nameLower.end(), nameLower.begin(), ::tolower);
 
         Matrix localWorld =
             Matrix::CreateScale(obj.scale) * Matrix::CreateRotationX(XMConvertToRadians(obj.rotation.x)) *
@@ -352,7 +349,14 @@ void TitleScene::Render(GameContext& gameContext)
             m_effect->SetView(orthoView);
             m_effect->SetProjection(orthoProj);
 
-            if ((obj.tag == "StartButton" && m_isStartHovered) || (obj.tag == "ExitButton" && m_isExitHovered))
+            bool isSolo = (tagLower.find("solo") != std::string::npos || nameLower.find("solo") != std::string::npos ||
+                           tagLower.find("start") != std::string::npos);
+            bool isMulti =
+                (tagLower.find("multi") != std::string::npos || nameLower.find("multi") != std::string::npos);
+            bool isExit = (tagLower.find("exit") != std::string::npos || nameLower.find("exit") != std::string::npos);
+
+            // ホバー時の輝度強調
+            if ((isSolo && m_isSoloHovered) || (isMulti && m_isMultiHovered) || (isExit && m_isExitHovered))
             {
                 m_effect->SetDiffuseColor(Vector4(1.3f, 1.3f, 1.3f, 1.0f));
             }
@@ -368,15 +372,14 @@ void TitleScene::Render(GameContext& gameContext)
         }
     }
 
+    // ★ レイヤー 3: 2Dパーティクルの描画（2D UIの前面に表示）
+    m_particleManager.Render(context, screenWidth, screenHeight, gameContext.commonStates);
+
     // ステート復元
     context->OMSetBlendState(gameContext.commonStates.Opaque(), nullptr, 0xFFFFFFFF);
     context->OMSetDepthStencilState(gameContext.commonStates.DepthDefault(), 0);
     context->RSSetState(gameContext.commonStates.CullCounterClockwise());
 
-    // ネットワークロビーUIの描画
-    m_networkUI.Render(gameContext);
-
-    // デバッグテキスト描画
     Imase::DebugRenderer& debugRenderer = gameContext.debugRenderer;
     debugRenderer.Render(context, &gameContext.commonStates);
 }

@@ -2,15 +2,45 @@
 #include "NetworkManager.h"
 #include <iostream>
 
+#pragma comment(lib, "ws2_32.lib")
+
+// 自PCのローカルIPアドレスを取得して文字列形式で返します
+std::string GetLocalIPAddress()
+{
+    char hostName[256] = {0};
+    if (gethostname(hostName, sizeof(hostName)) == SOCKET_ERROR)
+    {
+        return "127.0.0.1";
+    }
+
+    addrinfo hints = {};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+
+    addrinfo* res = nullptr;
+    if (getaddrinfo(hostName, nullptr, &hints, &res) != 0 || !res)
+    {
+        return "127.0.0.1";
+    }
+
+    char ipStr[INET_ADDRSTRLEN] = {0};
+    sockaddr_in* sockaddr_ipv4 = reinterpret_cast<sockaddr_in*>(res->ai_addr);
+    inet_ntop(AF_INET, &(sockaddr_ipv4->sin_addr), ipStr, sizeof(ipStr));
+
+    freeaddrinfo(res);
+    return std::string(ipStr);
+}
+
 NetworkManager::NetworkManager()
 {
 }
 
 NetworkManager::~NetworkManager()
 {
-    Shutdown();
+    ForceDisconnect(); // インスタンス破棄時は強制切断を実行
 }
 
+// Winsock 2.2 ライブラリの初期化
 bool NetworkManager::Initialize()
 {
     WSADATA wsaData;
@@ -18,91 +48,116 @@ bool NetworkManager::Initialize()
     return (result == 0);
 }
 
-void NetworkManager::Shutdown()
+// 送信バッファを破棄してRST（即時リセット）を送信する強制切断処理
+void NetworkManager::ForceDisconnect()
 {
-    if (m_peerSocket != INVALID_SOCKET)
+    auto CloseSocketWithLinger = [](SOCKET& sock)
     {
-        closesocket(m_peerSocket);
-        m_peerSocket = INVALID_SOCKET;
-    }
-    if (m_listenSocket != INVALID_SOCKET)
-    {
-        closesocket(m_listenSocket);
-        m_listenSocket = INVALID_SOCKET;
-    }
-    WSACleanup();
+        if (sock != INVALID_SOCKET)
+        {
+            // linger 構造体の設定 (l_onoff = 1, l_linger = 0 で即時強制リセット)
+            linger ling;
+            ling.l_onoff = 1;
+            ling.l_linger = 0;
+            setsockopt(sock, SOL_SOCKET, SO_LINGER, reinterpret_cast<const char*>(&ling), sizeof(ling));
+
+            shutdown(sock, SD_BOTH);
+            closesocket(sock);
+            sock = INVALID_SOCKET;
+        }
+    };
+
+    CloseSocketWithLinger(m_peerSocket);
+    CloseSocketWithLinger(m_listenSocket);
+
+    m_recvBuffer.clear();
+    m_incomingPackets.clear();
     m_isConnected = false;
     m_mode = Mode::None;
+
+    WSACleanup();
 }
 
+void NetworkManager::Shutdown()
+{
+    ForceDisconnect();
+}
+
+// ソケットを非ブロッキングモード（recv/connectでスレッドが停止しない設定）へ切り替え
 void NetworkManager::SetNonBlocking(SOCKET sock)
 {
-    u_long mode = 1; // 1: ノンブロッキングモード
+    u_long mode = 1;
     ioctlsocket(sock, FIONBIO, &mode);
 }
 
+// 部屋主（ホスト）としてポートをバインドしクライアントの接続受付を開始
 bool NetworkManager::StartHost(uint16_t port)
 {
+    ForceDisconnect(); // 再起動前に過去のソケットをリセット
+    Initialize();
+
     m_listenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (m_listenSocket == INVALID_SOCKET)
         return false;
 
     SetNonBlocking(m_listenSocket);
 
-    sockaddr_in serverAddr{};
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr.s_addr = INADDR_ANY;
-    serverAddr.sin_port = htons(port);
+    sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    addr.sin_addr.s_addr = INADDR_ANY;
 
-    if (bind(m_listenSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR)
+    if (bind(m_listenSocket, (sockaddr*)&addr, sizeof(addr)) == SOCKET_ERROR)
     {
         closesocket(m_listenSocket);
+        m_listenSocket = INVALID_SOCKET;
         return false;
     }
 
-    if (listen(m_listenSocket, SOMAXCONN) == SOCKET_ERROR)
+    if (listen(m_listenSocket, 1) == SOCKET_ERROR)
     {
         closesocket(m_listenSocket);
+        m_listenSocket = INVALID_SOCKET;
         return false;
     }
 
     m_mode = Mode::Host;
+    m_isConnected = false;
     return true;
 }
 
+// クライアントとして指定されたホストのIP・ポートへ接続要求を送信
 bool NetworkManager::ConnectToHost(const char* ipAddress, uint16_t port)
 {
+    ForceDisconnect();
+    Initialize();
+
     m_peerSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (m_peerSocket == INVALID_SOCKET)
         return false;
 
-    sockaddr_in serverAddr{};
-    serverAddr.sin_family = AF_INET;
-    inet_pton(AF_INET, ipAddress, &serverAddr.sin_addr);
-    serverAddr.sin_port = htons(port);
+    sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(port);
+    inet_pton(AF_INET, ipAddress, &addr.sin_addr);
 
-    // 接続実行（ノンブロッキング前に行うか、WSAEWOULDBLOCK をハンドリング）
-    int result = connect(m_peerSocket, (sockaddr*)&serverAddr, sizeof(serverAddr));
-    if (result == SOCKET_ERROR)
+    if (connect(m_peerSocket, (sockaddr*)&addr, sizeof(addr)) == SOCKET_ERROR)
     {
-        int err = WSAGetLastError();
-        if (err != WSAEWOULDBLOCK)
-        {
-            closesocket(m_peerSocket);
-            m_peerSocket = INVALID_SOCKET;
-            return false;
-        }
+        closesocket(m_peerSocket);
+        m_peerSocket = INVALID_SOCKET;
+        return false;
     }
 
     SetNonBlocking(m_peerSocket);
     m_mode = Mode::Client;
-    m_isConnected = true; // 簡略化（必要に応じて毎フレーム接続状態を監視）
+    m_isConnected = true;
     return true;
 }
 
+// 毎フレーム呼び出し：接続確立の監視およびパケットの受信ストリーム展開
 void NetworkManager::Update()
 {
-    // 1. ホスト待機中の場合: 接続をチェック
+    // ホストモードで未接続の場合、新規クライアントの接続をチェック
     if (m_mode == Mode::Host && !m_isConnected)
     {
         SOCKET clientSock = accept(m_listenSocket, nullptr, nullptr);
@@ -110,66 +165,52 @@ void NetworkManager::Update()
         {
             m_peerSocket = clientSock;
             SetNonBlocking(m_peerSocket);
-            m_isConnected = true;
+            m_isConnected = true; // クライアント接続完了
         }
     }
 
-    // 2. 接続中の場合: データを受信
+    // 接続相手から送られてくるデータの受信・パケット切り出し処理
     if (m_isConnected && m_peerSocket != INVALID_SOCKET)
     {
-        char tempBuffer[1024];
-        int bytesRead = recv(m_peerSocket, tempBuffer, sizeof(tempBuffer), 0);
-
-        if (bytesRead > 0)
+        char buffer[1024];
+        int bytesRecv = recv(m_peerSocket, buffer, sizeof(buffer), 0);
+        if (bytesRecv > 0)
         {
-            // 受信データをバッファに追加
-            m_recvBuffer.insert(m_recvBuffer.end(), tempBuffer, tempBuffer + bytesRead);
+            // 受信バッファへ追加
+            m_recvBuffer.insert(m_recvBuffer.end(), buffer, buffer + bytesRecv);
 
-            // パケット解析（ヘッダーの size に基づいて分割）
+            // ヘッダーサイズ以上のデータが蓄積されている場合、パケット単位へ分割切り出し
             while (m_recvBuffer.size() >= sizeof(PacketHeader))
             {
                 PacketHeader* header = reinterpret_cast<PacketHeader*>(m_recvBuffer.data());
-                if (m_recvBuffer.size() >= header->size)
-                {
-                    // 1パケット分切り出し
-                    std::vector<uint8_t> packet(m_recvBuffer.begin(), m_recvBuffer.begin() + header->size);
-                    m_incomingPackets.push_back(packet);
+                if (m_recvBuffer.size() < header->size)
+                    break; // パケット全体の到着を待つ
 
-                    // バッファの先頭から削除
-                    m_recvBuffer.erase(m_recvBuffer.begin(), m_recvBuffer.begin() + header->size);
-                }
-                else
-                {
-                    break; // パケットがまだ全部届いていない
-                }
+                // 完全なパケットデータを抽出してキューに追加
+                std::vector<uint8_t> packet(m_recvBuffer.begin(), m_recvBuffer.begin() + header->size);
+                m_incomingPackets.push_back(packet);
+                m_recvBuffer.erase(m_recvBuffer.begin(), m_recvBuffer.begin() + header->size);
             }
         }
-        else if (bytesRead == 0)
+        else if (bytesRecv == 0 || (bytesRecv == SOCKET_ERROR && WSAGetLastError() != WSAEWOULDBLOCK))
         {
-            // 切断された
+            // 切断通知またはエラー検出時の切断処理
             m_isConnected = false;
-        }
-        else
-        {
-            int err = WSAGetLastError();
-            if (err != WSAEWOULDBLOCK)
-            {
-                // エラーによる切断
-                m_isConnected = false;
-            }
         }
     }
 }
 
+// パケットデータの非同期送信
 bool NetworkManager::SendPacket(const void* packetData, uint16_t size)
 {
     if (!m_isConnected || m_peerSocket == INVALID_SOCKET)
         return false;
 
-    int result = send(m_peerSocket, reinterpret_cast<const char*>(packetData), size, 0);
-    return (result != SOCKET_ERROR);
+    int bytesSent = send(m_peerSocket, reinterpret_cast<const char*>(packetData), size, 0);
+    return (bytesSent != SOCKET_ERROR);
 }
 
+// 受信パケットキューから先頭パケットを取り出す
 bool NetworkManager::PopPacket(std::vector<uint8_t>& outPacket)
 {
     if (m_incomingPackets.empty())
@@ -178,4 +219,57 @@ bool NetworkManager::PopPacket(std::vector<uint8_t>& outPacket)
     outPacket = m_incomingPackets.front();
     m_incomingPackets.erase(m_incomingPackets.begin());
     return true;
+}
+
+// ダイス出目の同期送信
+void NetworkManager::SendDiceResult(int steps)
+{
+    MsgDiceResult packet;
+    packet.header.size = sizeof(MsgDiceResult);
+    packet.header.type = PacketType::CS_DiceResult;
+    packet.steps = steps;
+
+    SendPacket(&packet, sizeof(packet));
+}
+
+// コマ移動の同期送信
+void NetworkManager::SendMovePiece(int fromX, int fromY, int toX, int toY)
+{
+    MsgMovePiece packet;
+    packet.header.size = sizeof(MsgMovePiece);
+    packet.header.type = PacketType::CS_MovePiece;
+    packet.fromX = fromX;
+    packet.fromY = fromY;
+    packet.toX = toX;
+    packet.toY = toY;
+
+    SendPacket(&packet, sizeof(packet));
+}
+
+// 受信パケットのディスパッチ（コールバックの自動実行）
+void NetworkManager::DispatchPackets()
+{
+    Update();
+
+    std::vector<uint8_t> packetData;
+    while (PopPacket(packetData))
+    {
+        if (packetData.size() < sizeof(PacketHeader))
+            continue;
+
+        const PacketHeader* header = reinterpret_cast<const PacketHeader*>(packetData.data());
+
+        if (header->type == PacketType::CS_DiceResult)
+        {
+            const auto* pkt = reinterpret_cast<const MsgDiceResult*>(packetData.data());
+            if (m_onDiceResult)
+                m_onDiceResult(pkt->steps);
+        }
+        else if (header->type == PacketType::CS_MovePiece)
+        {
+            const auto* pkt = reinterpret_cast<const MsgMovePiece*>(packetData.data());
+            if (m_onMovePiece)
+                m_onMovePiece(pkt->fromX, pkt->fromY, pkt->toX, pkt->toY);
+        }
+    }
 }

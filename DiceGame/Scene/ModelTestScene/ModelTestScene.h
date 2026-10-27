@@ -10,7 +10,7 @@
 #include "../SceneId.h"
 #include "../Framework/ObjectData.h"
 #include "Game.h"
-#include "Dice.h"
+#include "Dice/Dice.h"
 
 // 3Dモデルの配置テストや挙動の検証を行うためのシーンクラス
 // EditorSceneと同様に Imase::SceneBase を継承し、SceneManager経由で管理されます

@@ -1,0 +1,49 @@
+{
+  "objects": [
+    {
+      "collisionScale": [ 1.0, 1.0, 1.0 ],
+      "modelName": "Title.png",
+      "position": [ 0.0, 2.0, 0.0 ],
+      "rigidBody": {
+        "damping": 0.98,
+        "enabled": false,
+        "isStatic": false,
+        "mass": 1.0,
+        "useGravity": true
+      },
+      "rotation": [ 0.0, 0.0, 0.0 ],
+      "scale": [ -6.55, 4.35, 0.0 ],
+      "tag": "LobbyTitle"
+    },
+    {
+      "collisionScale": [ 1.0, 1.0, 1.0 ],
+      "modelName": "Exit.png",
+      "position": [ 0.0, -3.2, 0.0 ],
+      "rigidBody": {
+        "damping": 0.98,
+        "enabled": false,
+        "isStatic": false,
+        "mass": 1.0,
+        "useGravity": true
+      },
+      "rotation": [ 0.0, 0.0, 0.0 ],
+      "scale": [ -4.0, 2.0, 0.2 ],
+      "tag": "BackButton"
+    },
+    {
+      "collisionScale": [ 1.0, 1.0, 1.0 ],
+      "modelName": "SkyDoom.cmo",
+      "position": [ 0.0, 0.0, 0.0 ],
+      "rigidBody": {
+        "damping": 0.98,
+        "enabled": false,
+        "isStatic": false,
+        "mass": 1.0,
+        "useGravity": true
+      },
+      "rotation": [ 0.0, 0.0, 0.0 ],
+      "scale": [ 100.0, 100.0, 100.0 ],
+      "tag": "Sky"
+    }
+  ]
+}

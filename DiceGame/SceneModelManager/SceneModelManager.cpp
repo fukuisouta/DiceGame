@@ -7,12 +7,14 @@ using namespace DirectX;
 using namespace DirectX::SimpleMath;
 using json = nlohmann::json;
 
+// エフェクトファクトリの生成とモデルテクスチャディレクトリのパス設定
 void SceneModelManager::Initialize(ID3D11Device* device)
 {
     m_fxFactory = std::make_unique<EffectFactory>(device);
     m_fxFactory->SetDirectory(L"Resources/Models");
 }
 
+// JSONレイアウトファイルからのステージモデル読み込みとインスタンス生成
 bool SceneModelManager::LoadFromJson(ID3D11Device* device, const std::string& filePath)
 {
     m_placedObjects.clear();
@@ -29,11 +31,12 @@ bool SceneModelManager::LoadFromJson(ID3D11Device* device, const std::string& fi
         for (const auto& item : j["objects"])
         {
             PlacedObject obj;
-            // JSONの modelName や cmoFileName から取得して cmoFileName に設定
+            // JSONの modelName や cmoFileName から取得して cmoFileName に設定[cite: 64]
             obj.cmoFileName = item.value("cmoFileName", item.value("modelName", ""));
             obj.name = item.value("name", obj.cmoFileName);
             obj.tag = item.value("tag", "Default");
 
+            // トランスフォーム情報（位置・回転・スケール）のパース
             if (item.contains("position") && item["position"].is_array() && item["position"].size() == 3)
             {
                 obj.position = Vector3(item["position"][0], item["position"][1], item["position"][2]);
@@ -47,7 +50,7 @@ bool SceneModelManager::LoadFromJson(ID3D11Device* device, const std::string& fi
                 obj.scale = Vector3(item["scale"][0], item["scale"][1], item["scale"][2]);
             }
 
-            // モデルの読み込み
+            // CMO形式の3Dモデルデータのロード処理[cite: 64]
             if (!obj.cmoFileName.empty())
             {
                 std::wstring wPath(obj.cmoFileName.begin(), obj.cmoFileName.end());
@@ -68,6 +71,7 @@ bool SceneModelManager::LoadFromJson(ID3D11Device* device, const std::string& fi
     return true;
 }
 
+// 配置されているすべての3Dモデルをワールド行列に変換してレンダリング
 void SceneModelManager::Render(ID3D11DeviceContext* context, CommonStates& states, const Matrix& view,
                                const Matrix& projection)
 {
@@ -75,6 +79,7 @@ void SceneModelManager::Render(ID3D11DeviceContext* context, CommonStates& state
     {
         if (obj.model)
         {
+            // スケール・回転（Pitch/Yaw/Roll）・平行移動行列の合成
             Matrix world =
                 Matrix::CreateScale(obj.scale) * Matrix::CreateRotationX(XMConvertToRadians(obj.rotation.x)) *
                 Matrix::CreateRotationY(XMConvertToRadians(obj.rotation.y)) *

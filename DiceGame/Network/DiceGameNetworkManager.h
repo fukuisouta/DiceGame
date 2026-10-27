@@ -2,6 +2,9 @@
 #include "NetworkManager.h"
 #include <functional>
 
+// ============================================================================
+// DiceGame 専用のネットワーク制御派生クラス
+// ============================================================================
 class DiceGameNetworkManager : public NetworkManager
 {
 public:
@@ -10,17 +13,17 @@ public:
 
     // --- 送信用ヘルパー関数 ---
 
-    // ダイス出目を送信
+    // ダイスの出目を通信相手に送信
     bool SendDiceResult(int steps)
     {
         MsgDiceResult msg{};
         msg.header.size = sizeof(MsgDiceResult);
-        msg.header.type = PacketType::SC_DiceResult;
+        msg.header.type = PacketType::CS_DiceResult;
         msg.steps = steps;
         return SendPacket(&msg, sizeof(msg));
     }
 
-    // コマ移動を送信
+    // コマの移動（移動元と移動先座標）を通信相手に送信
     bool SendMovePiece(int fromX, int fromY, int toX, int toY)
     {
         MsgMovePiece msg{};
@@ -35,11 +38,12 @@ public:
 
     // --- 受信ハンドリング処理 ---
 
-    // コールバック関数型の定義
+    // コールバック関数型定義
     using OnDiceResultCallback = std::function<void(int steps)>;
     using OnMovePieceCallback = std::function<void(int fromX, int fromY, int toX, int toY)>;
     using OnWorldSyncCallback = std::function<void(const MsgWorldSync& syncPkt)>;
 
+    // イベント受信ハンドラーの登録
     void SetOnDiceResult(OnDiceResultCallback cb)
     {
         m_onDiceResult = cb;
@@ -53,7 +57,7 @@ public:
         m_onWorldSync = cb;
     }
 
-    // 受信パケットの安全な一括処理（毎フレームUpdateの後に呼ぶ）
+    // 受信パケットの安全な一括処理（毎フレーム Update の後に呼び出します）
     void DispatchPackets()
     {
         std::vector<uint8_t> packet;
@@ -66,7 +70,8 @@ public:
 
             switch (header->type)
             {
-                case PacketType::SC_DiceResult:
+                // ダイス出目パケットの受信処理
+                case PacketType::CS_DiceResult:
                     if (m_onDiceResult && packet.size() >= sizeof(MsgDiceResult))
                     {
                         auto* msg = reinterpret_cast<MsgDiceResult*>(packet.data());
@@ -74,6 +79,7 @@ public:
                     }
                     break;
 
+                // コマ移動パケットの受信処理
                 case PacketType::CS_MovePiece:
                     if (m_onMovePiece && packet.size() >= sizeof(MsgMovePiece))
                     {
@@ -82,6 +88,7 @@ public:
                     }
                     break;
 
+                // 盤面全体同期パケットの受信処理
                 case PacketType::SC_WorldSync:
                     if (m_onWorldSync && packet.size() >= sizeof(MsgWorldSync))
                     {
@@ -97,7 +104,7 @@ public:
     }
 
 private:
-    OnDiceResultCallback m_onDiceResult;
-    OnMovePieceCallback m_onMovePiece;
-    OnWorldSyncCallback m_onWorldSync;
+    OnDiceResultCallback m_onDiceResult; // 出目受信コールバック
+    OnMovePieceCallback m_onMovePiece;   // 移動受信コールバック
+    OnWorldSyncCallback m_onWorldSync;   // 盤面同期受信コールバック
 };

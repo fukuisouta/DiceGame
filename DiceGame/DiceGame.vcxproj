@@ -85,7 +85,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)Imgui;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)Scene\GamePlayScene;$(ProjectDir)Scene;$(ProjectDir);$(ProjectDir)Imgui;$(ProjectDir)Scene\GamePlayScene\Base;$(ProjectDir)Scene\GamePlayScene\env;$(ProjectDir)Scene\GamePlayScene\System;$(ProjectDir)Scene\GamePlayScene\UI;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <WarningLevel>Level4</WarningLevel>
@@ -108,7 +108,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)Imgui;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)Scene\GamePlayScene;$(ProjectDir)Scene;$(ProjectDir);$(ProjectDir)Imgui;$(ProjectDir)Scene\GamePlayScene\Base;$(ProjectDir)Scene\GamePlayScene\env;$(ProjectDir)Scene\GamePlayScene\System;$(ProjectDir)Scene\GamePlayScene\UI;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <WarningLevel>Level4</WarningLevel>
@@ -130,7 +130,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)Imgui;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)Scene\GamePlayScene;$(ProjectDir)Scene;$(ProjectDir);$(ProjectDir)Imgui;$(ProjectDir)Scene\GamePlayScene\Base;$(ProjectDir)Scene\GamePlayScene\env;$(ProjectDir)Scene\GamePlayScene\System;$(ProjectDir)Scene\GamePlayScene\UI;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <WarningLevel>Level4</WarningLevel>
@@ -157,7 +157,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)Imgui;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)Scene\GamePlayScene;$(ProjectDir)Scene;$(ProjectDir);$(ProjectDir)Imgui;$(ProjectDir)Scene\GamePlayScene\Base;$(ProjectDir)Scene\GamePlayScene\env;$(ProjectDir)Scene\GamePlayScene\System;$(ProjectDir)Scene\GamePlayScene\UI;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
       <WarningLevel>Level4</WarningLevel>
@@ -188,14 +188,16 @@
     <ClInclude Include="Camera\MoveCamera.h" />
     <ClInclude Include="Camera\SpringCamera.h" />
     <ClInclude Include="Common\DeviceResources.h" />
-    <ClInclude Include="Dice.h" />
+    <ClInclude Include="Dice\Dice.h" />
     <ClInclude Include="DirectXTK_Utilities\DebugDraw.h" />
     <ClInclude Include="DQN\SimpleDQN.h" />
+    <ClInclude Include="Framework\SoundManager.h" />
     <ClInclude Include="GifTexture.h" />
     <ClInclude Include="Network\DiceGameNetworkManager.h" />
     <ClInclude Include="Network\NetworkLobbyUI.h" />
     <ClInclude Include="Network\NetworkManager.h" />
     <ClInclude Include="Network\NetworkPackets.h" />
+    <ClInclude Include="Network\NetworkUI.h" />
     <ClInclude Include="SceneModelManager\SceneModelManager.h" />
     <ClInclude Include="Scene\EditorScene\EditorScene.h" />
     <ClInclude Include="Framework\ObjectData.h" />
@@ -224,38 +226,48 @@
     <ClInclude Include="pch.h" />
     <ClInclude Include="Common\StepTimer.h" />
     <ClInclude Include="Scene\BaseScene\BaseScene.h" />
-    <ClInclude Include="Scene\GamePlayScene\AdvanceGamePlayScene.h" />
-    <ClInclude Include="Scene\GamePlayScene\CameraController.h" />
-    <ClInclude Include="Scene\GamePlayScene\Card.h" />
-    <ClInclude Include="Scene\GamePlayScene\CardDeckManager.h" />
-    <ClInclude Include="Scene\GamePlayScene\DiceBattleAI.h" />
-    <ClInclude Include="Scene\GamePlayScene\DiceBattleGame.h" />
-    <ClInclude Include="Scene\GamePlayScene\DiceViewer.h" />
-    <ClInclude Include="Scene\GamePlayScene\GameLogManager.h" />
-    <ClInclude Include="Scene\GamePlayScene\GamePlayScene.h" />
-    <ClInclude Include="Scene\GamePlayScene\GamePlaySceneBase.h" />
-    <ClInclude Include="Scene\GamePlayScene\GridField.h" />
-    <ClInclude Include="Scene\GamePlayScene\OriginalGamePlayScene.h" />
-    <ClInclude Include="Scene\GamePlayScene\ParticleManager.h" />
-    <ClInclude Include="Scene\GamePlayScene\PieceDropAnimator.h" />
-    <ClInclude Include="Scene\GamePlayScene\SkillManager.h" />
+    <ClInclude Include="Scene\GamePlayScene\Base\AdvanceGamePlayScene.h" />
+    <ClInclude Include="Scene\GamePlayScene\env\CameraController.h" />
+    <ClInclude Include="Scene\GamePlayScene\env\CameraManager.h" />
+    <ClInclude Include="Scene\GamePlayScene\UI\CameraButton.h" />
+    <ClInclude Include="Scene\GamePlayScene\UI\Card.h" />
+    <ClInclude Include="Scene\GamePlayScene\UI\CardDeckManager.h" />
+    <ClInclude Include="Scene\GamePlayScene\System\DiceBattleAI.h" />
+    <ClInclude Include="Scene\GamePlayScene\System\DiceBattleGame.h" />
+    <ClInclude Include="Scene\GamePlayScene\UI\DiceViewer.h" />
+    <ClInclude Include="Scene\GamePlayScene\UI\DiceViewerController.h" />
+    <ClInclude Include="Scene\GamePlayScene\UI\GameLogManager.h" />
+    <ClInclude Include="Scene\GamePlayScene\System\GameJudgeManager.h" />
+    <ClInclude Include="Scene\GamePlayScene\Base\GamePlaySceneBase.h" />
+    <ClInclude Include="Scene\GamePlayScene\UI\GamePlayUIController.h" />
+    <ClInclude Include="Scene\GamePlayScene\env\GridField.h" />
+    <ClInclude Include="Scene\GamePlayScene\System\MovableTileCalculator.h" />
+    <ClInclude Include="Scene\GamePlayScene\Base\OriginalGamePlayScene.h" />
+    <ClInclude Include="Scene\GamePlayScene\UI\ParticleManager.h" />
+    <ClInclude Include="Scene\GamePlayScene\UI\PieceDropAnimator.h" />
+    <ClInclude Include="Scene\GamePlayScene\System\PieceMovementController.h" />
+    <ClInclude Include="Scene\GamePlayScene\System\SkillManager.h" />
+    <ClInclude Include="Scene\GamePlayScene\System\TurnManager.h" />
+    <ClInclude Include="Scene\Lobby\LobbyScene.h" />
     <ClInclude Include="Scene\ModelTestScene\ModelTestScene.h" />
     <ClInclude Include="Scene\SceneId.h" />
     <ClInclude Include="Scene\SelectScene\SelectScene.h" />
     <ClInclude Include="Scene\TitleScene\TitleScene.h" />
     <ClInclude Include="SkyBox\Skybox.h" />
-    <ClInclude Include="StepDice.h" />
+    <ClInclude Include="Dice\StepDice.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Camera\FixedCamera.cpp" />
     <ClCompile Include="Camera\MoveCamera.cpp" />
     <ClCompile Include="Camera\SpringCamera.cpp" />
     <ClCompile Include="Common\DeviceResources.cpp" />
-    <ClCompile Include="Dice.cpp" />
+    <ClCompile Include="Dice\Dice.cpp" />
     <ClCompile Include="DirectXTK_Utilities\DebugDraw.cpp" />
+    <ClCompile Include="Framework\SoundManager.cpp" />
     <ClCompile Include="GifTexture.cpp" />
     <ClCompile Include="Network\NetworkLobbyUI.cpp" />
     <ClCompile Include="Network\NetworkManager.cpp" />
+    <ClCompile Include="Network\NetworkUI.cpp" />
     <ClCompile Include="SceneModelManager\SceneModelManager.cpp" />
     <ClCompile Include="Scene\EditorScene\EditorScene.cpp" />
     <ClCompile Include="Game.cpp" />
@@ -318,17 +330,25 @@
       <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="Scene\BaseScene\BaseScene.cpp" />
-    <ClCompile Include="Scene\GamePlayScene\AdvanceGamePlayScene.cpp" />
-    <ClCompile Include="Scene\GamePlayScene\DiceBattleAI.cpp" />
-    <ClCompile Include="Scene\GamePlayScene\DiceBattleGame.cpp" />
-    <ClCompile Include="Scene\GamePlayScene\DiceViewer.cpp" />
-    <ClCompile Include="Scene\GamePlayScene\GameLogManager.cpp" />
-    <ClCompile Include="Scene\GamePlayScene\GamePlayScene.cpp" />
-    <ClCompile Include="Scene\GamePlayScene\GamePlaySceneBase.cpp" />
-    <ClCompile Include="Scene\GamePlayScene\GridField.cpp" />
-    <ClCompile Include="Scene\GamePlayScene\OriginalGamePlayScene.cpp" />
-    <ClCompile Include="Scene\GamePlayScene\ParticleManager.cpp" />
-    <ClCompile Include="Scene\GamePlayScene\SkillManager.cpp" />
+    <ClCompile Include="Scene\GamePlayScene\Base\AdvanceGamePlayScene.cpp" />
+    <ClCompile Include="Scene\GamePlayScene\env\CameraManager.cpp" />
+    <ClCompile Include="Scene\GamePlayScene\System\DiceBattleAI.cpp" />
+    <ClCompile Include="Scene\GamePlayScene\System\DiceBattleGame.cpp" />
+    <ClCompile Include="Scene\GamePlayScene\UI\CameraButton.cpp" />
+    <ClCompile Include="Scene\GamePlayScene\UI\DiceViewer.cpp" />
+    <ClCompile Include="Scene\GamePlayScene\UI\DiceViewerController.cpp" />
+    <ClCompile Include="Scene\GamePlayScene\UI\GameLogManager.cpp" />
+    <ClCompile Include="Scene\GamePlayScene\System\GameJudgeManager.cpp" />
+    <ClCompile Include="Scene\GamePlayScene\Base\GamePlaySceneBase.cpp" />
+    <ClCompile Include="Scene\GamePlayScene\UI\GamePlayUIController.cpp" />
+    <ClCompile Include="Scene\GamePlayScene\env\GridField.cpp" />
+    <ClCompile Include="Scene\GamePlayScene\System\MovableTileCalculator.cpp" />
+    <ClCompile Include="Scene\GamePlayScene\Base\OriginalGamePlayScene.cpp" />
+    <ClCompile Include="Scene\GamePlayScene\UI\ParticleManager.cpp" />
+    <ClCompile Include="Scene\GamePlayScene\System\PieceMovementController.cpp" />
+    <ClCompile Include="Scene\GamePlayScene\System\SkillManager.cpp" />
+    <ClCompile Include="Scene\GamePlayScene\System\TurnManager.cpp" />
+    <ClCompile Include="Scene\Lobby\LobbyScene.cpp" />
     <ClCompile Include="Scene\ModelTestScene\ModelTestScene.cpp" />
     <ClCompile Include="Scene\SelectScene\SelectScene.cpp" />
     <ClCompile Include="Scene\TitleScene\TitleScene.cpp" />

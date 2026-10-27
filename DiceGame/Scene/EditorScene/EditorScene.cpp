@@ -14,6 +14,7 @@ using namespace DirectX::SimpleMath;
 
 namespace
 {
+    // 3D空間上のAABB（軸平行境界ボックス）をスクリーン上の2D矩形（RECT）へ変換射影する関数
     RECT ProjectAABBToScreen(const Vector3& minBounds, const Vector3& maxBounds, const Matrix& view, const Matrix& proj,
                              float screenWidth, float screenHeight)
     {
@@ -51,6 +52,7 @@ namespace
     }
 }
 
+// エディタシーン開始時のリソース初期化
 void EditorScene::OnEnter(GameContext& gameContext)
 {
     ID3D11Device* device = gameContext.deviceResources.GetD3DDevice();
@@ -80,9 +82,11 @@ void EditorScene::OnEnter(GameContext& gameContext)
                               VertexPositionNormalTexture::InputElementCount, shaderByteCode, byteCodeLength,
                               m_inputLayout.ReleaseAndGetAddressOf());
 
+    // 初期レイアウトデータの読み込み
     LoadSceneFromJson(gameContext, m_currentFilePath);
 }
 
+// 2Dスプライト用四角形（板ポリゴン）の描画
 void EditorScene::DrawQuadWithPrimitiveBatch(ID3D11DeviceContext* context)
 {
     VertexPositionNormalTexture v1(XMFLOAT3(-0.5f, 0.5f, 0.0f), XMFLOAT3(0, 0, -1), XMFLOAT2(0.0f, 0.0f));
@@ -96,6 +100,7 @@ void EditorScene::DrawQuadWithPrimitiveBatch(ID3D11DeviceContext* context)
     m_primitiveBatch->End();
 }
 
+// 指定したテクスチャのロードおよびキャッシュ管理
 Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> EditorScene::GetOrLoadTexture(ID3D11Device* device,
                                                                                const std::string& texName)
 {
@@ -125,6 +130,7 @@ Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> EditorScene::GetOrLoadTexture(I
     return nullptr;
 }
 
+// 選択中オブジェクトのコピー
 void EditorScene::CopySelectedObject()
 {
     if (m_selectedIndex >= 0 && m_selectedIndex < static_cast<int>(m_placedObjects.size()))
@@ -134,6 +140,7 @@ void EditorScene::CopySelectedObject()
     }
 }
 
+// 保持しているクリップボードオブジェクトの貼り付け
 void EditorScene::PasteObject()
 {
     if (!m_hasClipboard)
@@ -149,6 +156,7 @@ void EditorScene::PasteObject()
     m_selectedIndex = static_cast<int>(m_placedObjects.size()) - 1;
 }
 
+// オブジェクトの複製
 void EditorScene::DuplicateObject(int index)
 {
     if (index >= 0 && index < static_cast<int>(m_placedObjects.size()))
@@ -163,6 +171,7 @@ void EditorScene::DuplicateObject(int index)
     }
 }
 
+// 毎フレームのロジック・入力更新処理
 void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, GameContext& gameContext)
 {
     float dt = static_cast<float>(gameContext.timer.GetElapsedSeconds());
@@ -170,6 +179,7 @@ void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
     m_field.Update(dt);
     m_gameLogic.Update(dt);
 
+    // 本編ゲームシーンへの遷移
     if (m_transitionToPlayScene)
     {
         SceneId targetScene = (gameContext.selectedMode == GameMode::Advance) ? SceneId::AdvanceGamePlayScene
@@ -179,6 +189,7 @@ void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
         return;
     }
 
+    // ドラッグ＆ドロップファイルの自動読み込み処理
     if (!gameContext.droppedFilePath.empty())
     {
         OnFileDropped(gameContext, gameContext.droppedFilePath);
@@ -249,7 +260,7 @@ void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
         return;
     }
 
-    // ── エディター通常操作 ──
+    // ── エディターカメラ操作（右ドラッグ回転・WASD移動） ──
     if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
     {
         m_cameraYaw += io.MouseDelta.x * m_cameraRotateSpeed;
@@ -288,6 +299,7 @@ void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
         m_cameraPos += forward * (io.MouseWheel * 2.0f);
     }
 
+    // [F]キーによるカメラ位置リセット
     if (ImGui::IsKeyPressed(ImGuiKey_F))
     {
         if (m_editorMode == 1)
@@ -306,12 +318,12 @@ void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
         }
     }
 
-    // 左クリック選択ピッキング判定
+    // マウスクリック（ピッキング）による3D/2Dオブジェクト選択
     if (m_editorMode == 1 && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.WantCaptureMouse)
     {
         Vector2 mousePos(io.MousePos.x, io.MousePos.y);
 
-        // ビューポート左側領域のみを判定基準にする
+        // 左側のメイン表示ビューポート内のみを対象に判定
         if (mousePos.x <= viewWidth)
         {
             float x = (2.0f * mousePos.x) / viewWidth - 1.0f;
@@ -352,6 +364,7 @@ void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
     }
 }
 
+// 毎フレームの描画処理
 void EditorScene::Render(GameContext& gameContext)
 {
     ID3D11Device* device = gameContext.deviceResources.GetD3DDevice();
@@ -365,12 +378,11 @@ void EditorScene::Render(GameContext& gameContext)
     ImVec2 workSize = ImVec2(viewport->WorkSize.x, viewport->WorkSize.y);
     float rightPanelWidth = 320.0f;
 
-    // パネルを除いた左側の有効表示領域
     float viewWidth = (std::max)(1.0f, workSize.x - rightPanelWidth);
     float viewHeight = workSize.y;
     float aspectRatio = viewWidth / viewHeight;
 
-    // ★ ビューポートを ImGui の左側領域にピッタリ適用（黒い隙間を完全追従して消去）
+    // ビューポートを ImGui の左側描画領域にピッタリ適用
     D3D11_VIEWPORT vp = {};
     vp.TopLeftX = 0.0f;
     vp.TopLeftY = viewport->WorkPos.y;
@@ -389,7 +401,7 @@ void EditorScene::Render(GameContext& gameContext)
                        Matrix::CreateTranslation(m_sceneRootPosition);
 
     // ==========================================
-    // レイヤー 1: 3Dワールド空間（Perspective）
+    // レイヤー 1: 3Dワールド空間モデルの描画（透視投影 Perspective）
     // ==========================================
     Matrix perspectiveView = Matrix::CreateLookAt(m_cameraPos, m_cameraPos + forward, Vector3::Up);
     Matrix perspectiveProj =
@@ -454,8 +466,8 @@ void EditorScene::Render(GameContext& gameContext)
     }
 
     // ==========================================
-    // レイヤー 2: 2D UIキャンバス（Orthographic）
-    // 3D背景描画後に深度バッファをクリアし、UIを前面に完全オーバーレイ
+    // レイヤー 2: 2D UIキャンバスの描画（平行投影 Orthographic）
+    // 3D要素の上面へ深度クリアを行ってオーバーレイ描画します
     // ==========================================
     context->ClearDepthStencilView(gameContext.deviceResources.GetDepthStencilView(), D3D11_CLEAR_DEPTH, 1.0f, 0);
 
@@ -493,6 +505,7 @@ void EditorScene::Render(GameContext& gameContext)
             m_effect->SetView(orthoView);
             m_effect->SetProjection(orthoProj);
 
+            // 選択状態およびホバー状態によるハイライト色の適用
             if (m_isPlaying &&
                 ((obj.tag == "StartButton" && m_isStartHovered) || (obj.tag == "ExitButton" && m_isExitHovered)))
             {
@@ -514,7 +527,7 @@ void EditorScene::Render(GameContext& gameContext)
         }
     }
 
-    // ★ ImGui描画前にビューポートを全画面に戻す
+    // ビューポートを全画面に戻して ImGui パネルを描画
     D3D11_VIEWPORT fullVp = {};
     fullVp.TopLeftX = 0.0f;
     fullVp.TopLeftY = 0.0f;
@@ -524,12 +537,11 @@ void EditorScene::Render(GameContext& gameContext)
     fullVp.MaxDepth = 1.0f;
     context->RSSetViewports(1, &fullVp);
 
-    // ステート復元
     context->OMSetBlendState(gameContext.commonStates.Opaque(), nullptr, 0xFFFFFFFF);
     context->OMSetDepthStencilState(gameContext.commonStates.DepthDefault(), 0);
     context->RSSetState(gameContext.commonStates.CullCounterClockwise());
 
-    // ── ImGui UI ──
+    // ── ImGui エディターGUI描画 ──
     if (ImGui::BeginMainMenuBar())
     {
         if (ImGui::BeginMenu("File"))
@@ -560,6 +572,7 @@ void EditorScene::Render(GameContext& gameContext)
     float topToolbarHeight = 38.0f;
     float leftAreaWidth = workSize.x - rightPanelWidth;
 
+    // 上部ツールバー
     ImGui::SetNextWindowPos(workPos);
     ImGui::SetNextWindowSize(ImVec2(leftAreaWidth, topToolbarHeight));
     ImGuiWindowFlags toolbarFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
@@ -612,6 +625,7 @@ void EditorScene::Render(GameContext& gameContext)
     }
     ImGui::End();
 
+    // 右側パラメータ調整パネル（Info）
     float rightPanelHeightTop = workSize.y * 0.45f;
     ImGui::SetNextWindowPos(ImVec2(workPos.x + leftAreaWidth, workPos.y));
     ImGui::SetNextWindowSize(ImVec2(rightPanelWidth, rightPanelHeightTop));
@@ -684,6 +698,7 @@ void EditorScene::Render(GameContext& gameContext)
     }
     ImGui::End();
 
+    // 右下プロジェクト・ヒエラルキービュー
     float rightPanelHeightBottom = workSize.y - rightPanelHeightTop;
     ImGui::SetNextWindowPos(ImVec2(workPos.x + leftAreaWidth, workPos.y + rightPanelHeightTop));
     ImGui::SetNextWindowSize(ImVec2(rightPanelWidth, rightPanelHeightBottom));
@@ -802,6 +817,7 @@ void EditorScene::Render(GameContext& gameContext)
     ImGui::End();
 }
 
+// JSONファイルからのシーンデータデシリアライズ読み込み
 void EditorScene::LoadSceneFromJson(GameContext& gameContext, const std::string& filePath)
 {
     SceneData loadedData;
@@ -858,6 +874,7 @@ void EditorScene::LoadSceneFromJson(GameContext& gameContext, const std::string&
     }
 }
 
+// JSONファイルへのシーンデータシリアライズ保存
 void EditorScene::SaveSceneToJson(const std::string& filePath)
 {
     SceneData saveData;
@@ -874,6 +891,7 @@ void EditorScene::SaveSceneToJson(const std::string& filePath)
     SceneSerializer::SaveToJson(filePath, saveData);
 }
 
+// 外部ファイルのドラッグ＆ドロップ受け取りハンドラー
 void EditorScene::OnFileDropped(GameContext& gameContext, const std::wstring& fullPath)
 {
     std::filesystem::path path(fullPath);
@@ -882,12 +900,14 @@ void EditorScene::OnFileDropped(GameContext& gameContext, const std::wstring& fu
 
     auto device = gameContext.deviceResources.GetD3DDevice();
 
+    // .json ファイルドロップ時の読み込み
     if (ext == ".json")
     {
         LoadSceneFromJson(gameContext, path.string());
         return;
     }
 
+    // 2D画像ファイルドロップ時のUI用オブジェクト生成
     if (ext == ".png" || ext == ".jpg" || ext == ".jpeg")
     {
         PlacedObject newObj;
@@ -913,6 +933,7 @@ void EditorScene::OnFileDropped(GameContext& gameContext, const std::wstring& fu
         return;
     }
 
+    // 3Dモデルファイルドロップ時の配置オブジェクト生成
     if (ext == ".cmo")
     {
         try
@@ -947,6 +968,7 @@ void EditorScene::OnFileDropped(GameContext& gameContext, const std::wstring& fu
     }
 }
 
+// 視線レイ（Ray）とAABB境界ボックスとの交差判定アルゴリズム（Slab Method）
 bool EditorScene::RayIntersectsAABB(const Vector3& rayOrigin, const Vector3& rayDir, const Vector3& boxMin,
                                     const Vector3& boxMax, float& outT)
 {
