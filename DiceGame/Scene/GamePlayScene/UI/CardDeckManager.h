@@ -5,9 +5,17 @@
 #include <random>
 #include <algorithm>
 
-// ============================================================================
+// デッキマネージャー定数定義
+namespace DeckConstants
+{
+    constexpr size_t TOTAL_CARD_TYPES = 7;   // 全カード種類の総数
+    constexpr size_t HAND_DRAW_COUNT = 3;    // 手札ドロー枚数
+    constexpr float HAND_START_X = 300.0f;   // 手札配置開始X座標
+    constexpr float HAND_SPACING_X = 150.0f; // 手札配置間隔
+    constexpr float HAND_POS_Y = 600.0f;     // 手札配置Y座標
+}
+
 // カードデッキ全体の生成、初期化、シャッフル手札ドローの管理クラス
-// ============================================================================
 class CardDeckManager
 {
 private:
@@ -21,11 +29,12 @@ public:
         m_randomEngine = std::mt19937(rd());
     }
 
-    // 全7種類のカードを初期化・マスターデッキへ登録[cite: 53]
+    // 全7種類のカードを初期化・マスターデッキへ登録する関数
+    // 引数 textures: テクスチャ配列参照
     void InitializeDeck(const std::vector<ID3D11ShaderResourceView*>& textures)
     {
         m_masterDeck.clear();
-        if (textures.size() < 7)
+        if (textures.size() < DeckConstants::TOTAL_CARD_TYPES)
             return;
 
         m_masterDeck.push_back(
@@ -43,7 +52,8 @@ public:
             std::make_shared<Card>(CardType::Double, L"Double", textures[6], L"のこりいどうステップすうを2ばいにする"));
     }
 
-    // 7枚の中から重複なしで3枚を抽出し手札領域に配置[cite: 53]
+    // 重複なしでカードを抽出し手札領域に配置ドローする関数
+    // 戻り値: 手札カードリスト
     std::vector<std::shared_ptr<Card>> DrawHand()
     {
         if (m_masterDeck.empty())
@@ -52,14 +62,13 @@ public:
         auto tempDeck = m_masterDeck;
         std::shuffle(tempDeck.begin(), tempDeck.end(), m_randomEngine);
 
-        size_t drawCount = (std::min)(size_t(3), tempDeck.size());
+        size_t drawCount = (std::min)(DeckConstants::HAND_DRAW_COUNT, tempDeck.size());
         std::vector<std::shared_ptr<Card>> hand(tempDeck.begin(), tempDeck.begin() + drawCount);
 
-        // 画面下に150px間隔で配置[cite: 53]
         for (size_t i = 0; i < hand.size(); ++i)
         {
-            float x = 300.0f + static_cast<float>(i) * 150.0f;
-            float y = 600.0f;
+            float x = DeckConstants::HAND_START_X + static_cast<float>(i) * DeckConstants::HAND_SPACING_X;
+            float y = DeckConstants::HAND_POS_Y;
             hand[i]->SetPosition(DirectX::SimpleMath::Vector2(x, y));
             hand[i]->SetUsed(false);
         }

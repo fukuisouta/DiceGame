@@ -9,7 +9,7 @@
 using namespace DirectX;
 using namespace DirectX::SimpleMath;
 
-// 移動可能マスおよびそのマスへ移動した際の上面出目を幅優先探索（BFS）で計算
+// 移動可能マスおよび出目探索計算の実行
 std::vector<MovableTileInfo> MovableTileCalculator::Calculate(int selectedX, int selectedY, int remainingSteps,
                                                               bool isWaitingForRoll, const DiceBattleGame& gameLogic)
 {
@@ -26,7 +26,6 @@ std::vector<MovableTileInfo> MovableTileCalculator::Calculate(int selectedX, int
         return movableTiles;
     }
 
-    // --- 王（King）の特殊移動計算 ---
     if (piece->type == PieceType::King)
     {
         int destroyedCount = 0;
@@ -36,7 +35,6 @@ std::vector<MovableTileInfo> MovableTileCalculator::Calculate(int selectedX, int
                 destroyedCount++;
         }
 
-        // 敵味方の撃破数に応じて移動可能な縦行エリアが拡張
         int allowedRows = std::min(DiceBattleGame::BOARD_HEIGHT, 2 + destroyedCount);
 
         int minY = 0;
@@ -44,13 +42,11 @@ std::vector<MovableTileInfo> MovableTileCalculator::Calculate(int selectedX, int
 
         if (piece->owner == PlayerType::Player1)
         {
-            // Player1: 盤面下側のエリア
             minY = std::max(0, DiceBattleGame::BOARD_HEIGHT - allowedRows);
             maxY = DiceBattleGame::BOARD_HEIGHT - 1;
         }
         else
         {
-            // Player2: 盤面上側のエリア
             minY = 0;
             maxY = std::min(DiceBattleGame::BOARD_HEIGHT - 1, allowedRows - 1);
         }
@@ -69,7 +65,7 @@ std::vector<MovableTileInfo> MovableTileCalculator::Calculate(int selectedX, int
                     MovableTileInfo info;
                     info.gridX = nx;
                     info.gridY = ny;
-                    info.expectedFace = 0; // 王は出目数字なし
+                    info.expectedFace = 0;
                     movableTiles.push_back(info);
                 }
             }
@@ -77,7 +73,6 @@ std::vector<MovableTileInfo> MovableTileCalculator::Calculate(int selectedX, int
 
         return movableTiles;
     }
-    // --- 通常兵隊コマ（ダイス）の探索計算 ---
     else if (remainingSteps > 0)
     {
         static const int dx[] = {0, 0, -1, 1};

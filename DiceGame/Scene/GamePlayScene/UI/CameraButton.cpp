@@ -5,9 +5,19 @@
 using namespace DirectX;
 using namespace DirectX::SimpleMath;
 
+// カメラボタン用スタイル定数定義
+namespace CameraButtonStyleConstants
+{
+    constexpr float DEFAULT_MARGIN = 20.0f;     // デフォルトマージン
+    constexpr float DEFAULT_TOP_BTN_W = 180.0f; // デフォルトの隣接ボタン幅
+    constexpr float DEFAULT_BTN_WIDTH = 130.0f; // デフォルトボタン幅
+    constexpr float DEFAULT_BTN_HEIGHT = 60.0f; // デフォルトボタン高さ
+    constexpr float HOVER_SCALE = 1.05f;        // ホバー時拡大スケール
+}
+
+// 初期化
 void CameraButton::Initialize(ID3D11Device* device)
 {
-    // テクスチャ（CAMERA.jpg / CAMERA.png）のロード
     HRESULT hr =
         CreateWICTextureFromFile(device, L"Resources/Textures/CAMERA.jpg", nullptr, m_texture.ReleaseAndGetAddressOf());
     if (FAILED(hr))
@@ -16,6 +26,7 @@ void CameraButton::Initialize(ID3D11Device* device)
     }
 }
 
+// 配置オブジェクトからの判定座標計算
 void CameraButton::SetFromPlacedObject(const PlacedObject& obj, float orthoWidth, float orthoHeight, float screenWidth,
                                        float screenHeight)
 {
@@ -33,30 +44,37 @@ void CameraButton::SetFromPlacedObject(const PlacedObject& obj, float orthoWidth
     m_rect.right = static_cast<LONG>((std::max)(x1, x2));
     m_rect.top = static_cast<LONG>((std::min)(y1, y2));
     m_rect.bottom = static_cast<LONG>((std::max)(y1, y2));
+    m_isCustomRectSet = true;
 }
 
-void CameraButton::Update(const Mouse::State& mouseState, float screenWidth, float screenHeight, bool isDiceViewerOpen)
+// フレーム更新
+void CameraButton::Update(const DirectX::Mouse::State& mouseState, float screenWidth, float screenHeight,
+                          bool isDiceViewerOpen)
 {
+    (void)screenWidth;
+    (void)screenHeight;
+
     if (isDiceViewerOpen)
     {
         m_isHovered = false;
         return;
     }
 
-    // デフォルト領域の補完（配置未読み込み時の予備座標）
-    if (m_rect.left == 0 && m_rect.right == 0)
+    if (!m_isCustomRectSet && m_rect.left == 0 && m_rect.right == 0)
     {
-        float margin = 20.0f;
-        float topBtnW = 180.0f;
+        float margin = CameraButtonStyleConstants::DEFAULT_MARGIN;
+        float topBtnW = CameraButtonStyleConstants::DEFAULT_TOP_BTN_W;
         float camX = margin + topBtnW + 15.0f;
-        m_rect = {static_cast<LONG>(camX), static_cast<LONG>(margin), static_cast<LONG>(camX + 130.0f),
-                  static_cast<LONG>(margin + 60.0f)};
+        m_rect = {static_cast<LONG>(camX), static_cast<LONG>(margin),
+                  static_cast<LONG>(camX + CameraButtonStyleConstants::DEFAULT_BTN_WIDTH),
+                  static_cast<LONG>(margin + CameraButtonStyleConstants::DEFAULT_BTN_HEIGHT)};
     }
 
     m_isHovered = (mouseState.x >= m_rect.left && mouseState.x <= m_rect.right && mouseState.y >= m_rect.top &&
                    mouseState.y <= m_rect.bottom);
 }
 
+// 描画処理
 void CameraButton::Render(ID3D11DeviceContext* context, PrimitiveBatch<VertexPositionTexture>* primitiveBatch,
                           BasicEffect* effect, ID3D11InputLayout* inputLayout)
 {
@@ -65,7 +83,7 @@ void CameraButton::Render(ID3D11DeviceContext* context, PrimitiveBatch<VertexPos
 
     float baseW = static_cast<float>(m_rect.right - m_rect.left);
     float baseH = static_cast<float>(m_rect.bottom - m_rect.top);
-    float scale = m_isHovered ? 1.05f : 1.0f;
+    float scale = m_isHovered ? CameraButtonStyleConstants::HOVER_SCALE : 1.0f;
 
     float bWidth = baseW * scale;
     float bHeight = baseH * scale;

@@ -3,46 +3,48 @@
 #include "Dice.h"
 
 // ============================================================================
-// 基底クラス Dice を継承し、移動歩数（1～3）専用のロジックを持つダイスクラス
-// ダイスの6面に対して 1, 2, 3 の値が2面ずつ（対面同士）割り当てられています
+// 移動歩数（1〜3）専用ダイスクラス
+// Base: Dice
 // ============================================================================
 class StepDice : public Dice
 {
 public:
     StepDice() = default;
-    ~StepDice() = default;
+    ~StepDice() override = default;
 
-    // ダイスの現在の回転状態（クォータニオン）から、真上（ワールド空間+Y）を向いている面の歩数（1〜3）を判定して返します
+    // 現在のダイス姿勢から、上面を向いている移動歩数（1～3）を判定して取得
     int GetStepValue() const
     {
-        // 各面のローカル方向ベクトルと、それに対応する歩数値（1〜3）のマッピング定義です
-        struct FaceStep
+        using namespace DirectX::SimpleMath;
+
+        // 各面ごとの移動歩数とローカル方向の紐付け用構造体
+        struct FaceStepInfo
         {
-            int stepValue;                         // 各面に割り当てられた移動歩数 (1~3)
-            DirectX::SimpleMath::Vector3 localDir; // ダイス中心から各面へのローカル法線ベクトル
+            int stepValue;    // 該当の面に設定されている移動歩数 (1～3)
+            Vector3 localDir; // ダイス中心から各面へ向かうローカル法線ベクトル
         };
 
-        // サイコロの対面同士に同じ値を割り当て、6面全体で 1～3 が2面ずつ存在するように設定しています
-        static const FaceStep faces[] = {
-            {3, DirectX::SimpleMath::Vector3(0.0f, 1.0f, 0.0f)},  // 上面（+Y方向）
-            {3, DirectX::SimpleMath::Vector3(0.0f, -1.0f, 0.0f)}, // 下面（-Y方向）
-            {2, DirectX::SimpleMath::Vector3(0.0f, 0.0f, 1.0f)},  // 前面（+Z方向）
-            {2, DirectX::SimpleMath::Vector3(0.0f, 0.0f, -1.0f)}, // 後面（-Z方向）
-            {1, DirectX::SimpleMath::Vector3(1.0f, 0.0f, 0.0f)},  // 右面（+X方向）
-            {1, DirectX::SimpleMath::Vector3(-1.0f, 0.0f, 0.0f)}, // 左面（-X方向）
+        // 対面同士に同じ値を割り当てた歩数マッピングテーブル
+        static const FaceStepInfo faces[] = {
+            {3, Vector3(0.0f, 1.0f, 0.0f)},  // +Y (上面: 3歩)
+            {3, Vector3(0.0f, -1.0f, 0.0f)}, // -Y (下面: 3歩)
+            {2, Vector3(0.0f, 0.0f, 1.0f)},  // +Z (前面: 2歩)
+            {2, Vector3(0.0f, 0.0f, -1.0f)}, // -Z (後面: 2歩)
+            {1, Vector3(1.0f, 0.0f, 0.0f)},  // +X (右面: 1歩)
+            {1, Vector3(-1.0f, 0.0f, 0.0f)}  // -X (左面: 1歩)
         };
 
-        DirectX::SimpleMath::Vector3 worldUp = DirectX::SimpleMath::Vector3(0.0f, 1.0f, 0.0f);
+        const Vector3 worldUp = Vector3(0.0f, 1.0f, 0.0f); // 判定の基準となるワールド空間の真上ベクトル
 
-        // ダイスの現在の回転姿勢の逆クォータニオンを適用し、ワールド空間の上方向ベクトルをダイスのローカル座標系へ変換します
-        DirectX::SimpleMath::Quaternion invRot;
-        GetRotation().Inverse(invRot);
-        DirectX::SimpleMath::Vector3 localUp = DirectX::SimpleMath::Vector3::Transform(worldUp, invRot);
+        // クォータニオン逆変換によりワールド上方向をダイスのローカル座標系へ変換
+        Quaternion invRot;
+        m_rotation.Inverse(invRot);
+        Vector3 localUp = Vector3::Transform(worldUp, invRot);
 
-        float maxDot = -100.0f;
-        int bestStep = 1;
+        float maxDot = DiceConstants::DOT_PRODUCT_INIT_MIN; // 最適面探索用の内積最大値保持変数
+        int bestStep = 1;                                   // 判定された最適な上面の歩数値 (デフォルト: 1)
 
-        // ローカル上方向ベクトルと各面の方向ベクトルの内積（Dot）を計算し、最も向きの近い（内積最大）面の歩数を判定します
+        // 内積計算により最も上を向いている面の歩数を抽出
         for (const auto& face : faces)
         {
             float dot = face.localDir.Dot(localUp);

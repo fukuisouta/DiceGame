@@ -6,7 +6,34 @@
 #include <cstring>
 #include <algorithm>
 
-// ロビーUIの初期化：自PCのIPアドレスを取得して設定
+namespace LobbyStyleConstants
+{
+    constexpr float ROUNDING_ZERO = 0.0f;
+    constexpr float ROUNDING_FRAME = 6.0f;
+    constexpr float BORDER_SIZE_NONE = 0.0f;
+    constexpr float BORDER_SIZE_THIN = 1.0f;
+
+    constexpr float PADDING_WINDOW_X = 20.0f;
+    constexpr float PADDING_WINDOW_Y = 20.0f;
+    constexpr float PADDING_FRAME_X = 12.0f;
+    constexpr float PADDING_FRAME_Y = 8.0f;
+    constexpr float SPACING_ITEM_X = 12.0f;
+    constexpr float SPACING_ITEM_Y = 10.0f;
+
+    constexpr float PANEL_MAX_WIDTH = 660.0f;
+    constexpr float PANEL_MAX_HEIGHT = 560.0f;
+    constexpr float PANEL_MARGIN = 40.0f;
+    constexpr float HALF_CENTER_RATIO = 0.5f;
+
+    constexpr float FONT_SCALE_HEADER = 1.15f;
+    constexpr float FONT_SCALE_NORMAL = 1.0f;
+
+    constexpr float BUTTON_EXIT_HEIGHT = 38.0f;
+    constexpr float BUTTON_ACTION_HEIGHT = 44.0f;
+    constexpr float RADIO_POS_X = 280.0f;
+}
+
+// ロビーUI初期化
 void NetworkLobbyUI::Initialize()
 {
     std::string myIP = GetLocalIPAddress();
@@ -17,26 +44,24 @@ void NetworkLobbyUI::Initialize()
     }
 }
 
-// オンラインロビー全画面UIの描画処理
+// UI描画処理
 void NetworkLobbyUI::Render(GameContext& gameContext)
 {
     if (!m_isVisible)
         return;
 
-    // ==========================================
-    // 1. ImGui スタイル設定（ダークブルーテーマ）
-    // ==========================================
+    // 1. スタイル設定
     ImGuiStyle& style = ImGui::GetStyle();
 
-    style.WindowRounding = 0.0f;
-    style.FrameRounding = 6.0f;
-    style.PopupRounding = 6.0f;
-    style.WindowBorderSize = 0.0f;
-    style.FrameBorderSize = 1.0f;
+    style.WindowRounding = LobbyStyleConstants::ROUNDING_ZERO;
+    style.FrameRounding = LobbyStyleConstants::ROUNDING_FRAME;
+    style.PopupRounding = LobbyStyleConstants::ROUNDING_FRAME;
+    style.WindowBorderSize = LobbyStyleConstants::BORDER_SIZE_NONE;
+    style.FrameBorderSize = LobbyStyleConstants::BORDER_SIZE_THIN;
 
-    style.WindowPadding = ImVec2(20, 20);
-    style.FramePadding = ImVec2(12, 8);
-    style.ItemSpacing = ImVec2(12, 10);
+    style.WindowPadding = ImVec2(LobbyStyleConstants::PADDING_WINDOW_X, LobbyStyleConstants::PADDING_WINDOW_Y);
+    style.FramePadding = ImVec2(LobbyStyleConstants::PADDING_FRAME_X, LobbyStyleConstants::PADDING_FRAME_Y);
+    style.ItemSpacing = ImVec2(LobbyStyleConstants::SPACING_ITEM_X, LobbyStyleConstants::SPACING_ITEM_Y);
 
     ImVec4* colors = style.Colors;
     colors[ImGuiCol_Text] = ImVec4(0.95f, 0.96f, 0.98f, 1.00f);
@@ -56,14 +81,12 @@ void NetworkLobbyUI::Render(GameContext& gameContext)
     colors[ImGuiCol_CheckMark] = ImVec4(0.35f, 0.85f, 1.00f, 1.00f);
     colors[ImGuiCol_Separator] = ImVec4(0.25f, 0.45f, 0.70f, 0.50f);
 
-    // ==========================================
-    // 2. 全画面固定背景ウィンドウの設定
-    // ==========================================
+    // 2. 全画面固定背景ウィンドウ
     auto outputSize = gameContext.deviceResources.GetOutputSize();
     float screenWidth = static_cast<float>(outputSize.right - outputSize.left);
     float screenHeight = static_cast<float>(outputSize.bottom - outputSize.top);
 
-    ImGui::SetNextWindowPos(ImVec2(0, 0));
+    ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f));
     ImGui::SetNextWindowSize(ImVec2(screenWidth, screenHeight));
 
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
@@ -71,26 +94,25 @@ void NetworkLobbyUI::Render(GameContext& gameContext)
 
     ImGui::Begin("FullLobbyWindow", nullptr, flags);
 
-    // ==========================================
-    // 3. 中央メインパネルの配置
-    // ==========================================
-    float panelWidth = (std::min)(660.0f, screenWidth - 40.0f);
-    float panelHeight = (std::min)(560.0f, screenHeight - 40.0f);
+    // 3. 中央パネル
+    float panelWidth =
+        (std::min)(LobbyStyleConstants::PANEL_MAX_WIDTH, screenWidth - LobbyStyleConstants::PANEL_MARGIN);
+    float panelHeight =
+        (std::min)(LobbyStyleConstants::PANEL_MAX_HEIGHT, screenHeight - LobbyStyleConstants::PANEL_MARGIN);
 
-    ImGui::SetCursorPos(ImVec2((screenWidth - panelWidth) * 0.5f, (screenHeight - panelHeight) * 0.5f));
+    ImGui::SetCursorPos(ImVec2((screenWidth - panelWidth) * LobbyStyleConstants::HALF_CENTER_RATIO,
+                               (screenHeight - panelHeight) * LobbyStyleConstants::HALF_CENTER_RATIO));
 
     ImGui::BeginChild("LobbyMainPanel", ImVec2(panelWidth, panelHeight), true, ImGuiWindowFlags_NoScrollbar);
 
-    // ヘッダータイトル
-    ImGui::SetWindowFontScale(1.15f);
+    ImGui::SetWindowFontScale(LobbyStyleConstants::FONT_SCALE_HEADER);
     ImGui::TextColored(ImVec4(0.35f, 0.85f, 1.00f, 1.00f), (const char*)u8"オンライン対戦ロビー");
-    ImGui::SetWindowFontScale(1.0f);
+    ImGui::SetWindowFontScale(LobbyStyleConstants::FONT_SCALE_NORMAL);
     ImGui::Separator();
     ImGui::Spacing();
 
-    // プレイヤー名入力領域
     ImGui::TextColored(ImVec4(0.80f, 0.88f, 0.98f, 1.00f), (const char*)u8"プレイヤー名設定");
-    ImGui::SetNextItemWidth(-1);
+    ImGui::SetNextItemWidth(-1.0f);
     if (ImGui::InputTextWithHint("##PlayerName", (const char*)u8"名前を入力してください...", m_playerNameBuffer,
                                  sizeof(m_playerNameBuffer)))
     {
@@ -99,7 +121,6 @@ void NetworkLobbyUI::Render(GameContext& gameContext)
 
     ImGui::Spacing();
 
-    // 自PCのネットワーク情報（IP表示）
     ImGui::TextColored(ImVec4(0.80f, 0.88f, 0.98f, 1.00f), (const char*)u8"ネットワーク情報");
     ImGui::Text((const char*)u8"あなたのIPアドレス (相手に教える番号): ");
     ImGui::SameLine();
@@ -109,10 +130,8 @@ void NetworkLobbyUI::Render(GameContext& gameContext)
     ImGui::Separator();
     ImGui::Spacing();
 
-    // 接続状態に応じた画面分岐
     if (gameContext.networkManager.IsConnected())
     {
-        // --- 接続確立中の表示 ---
         ImGui::TextColored(ImVec4(0.20f, 1.00f, 0.40f, 1.00f), (const char*)u8"[ 状態：接続中 ]");
         ImGui::Spacing();
 
@@ -127,8 +146,7 @@ void NetworkLobbyUI::Render(GameContext& gameContext)
 
         ImGui::Spacing();
 
-        // 切断・退出ボタン
-        if (ImGui::Button((const char*)u8"部屋を退出する", ImVec2(-1, 38)))
+        if (ImGui::Button((const char*)u8"部屋を退出する", ImVec2(-1.0f, LobbyStyleConstants::BUTTON_EXIT_HEIGHT)))
         {
             gameContext.networkManager.ForceDisconnect();
             m_statusMsg = (const char*)u8"部屋から退出しました。";
@@ -136,23 +154,24 @@ void NetworkLobbyUI::Render(GameContext& gameContext)
     }
     else
     {
-        // --- 未接続時のラジオボタン・接続フォーム表示 ---
         ImGui::TextColored(ImVec4(0.80f, 0.88f, 0.98f, 1.00f), (const char*)u8"対戦モード選択");
-        ImGui::RadioButton((const char*)u8"部屋を作る (ホスト)", &m_selectedModeIndex, 0);
-        ImGui::SameLine(280);
-        ImGui::RadioButton((const char*)u8"部屋に入る (参加)", &m_selectedModeIndex, 1);
+        ImGui::RadioButton((const char*)u8"部屋を作る (ホスト)", &m_selectedModeIndex,
+                           LobbyUIConstants::MODE_HOST_INDEX);
+        ImGui::SameLine(LobbyStyleConstants::RADIO_POS_X);
+        ImGui::RadioButton((const char*)u8"部屋に入る (参加)", &m_selectedModeIndex,
+                           LobbyUIConstants::MODE_CLIENT_INDEX);
 
         ImGui::Spacing();
 
-        if (m_selectedModeIndex == 0)
+        if (m_selectedModeIndex == LobbyUIConstants::MODE_HOST_INDEX)
         {
-            // ホスト起動フォーム
             ImGui::TextDisabled((const char*)u8"自分で対戦部屋を作成し、相手が接続してくるのを待ちます。");
             ImGui::Spacing();
 
-            if (ImGui::Button((const char*)u8"部屋を作って待機する", ImVec2(-1, 44)))
+            if (ImGui::Button((const char*)u8"部屋を作って待機する",
+                              ImVec2(-1.0f, LobbyStyleConstants::BUTTON_ACTION_HEIGHT)))
             {
-                if (gameContext.networkManager.StartHost(46860))
+                if (gameContext.networkManager.StartHost(LobbyUIConstants::DEFAULT_PORT))
                 {
                     m_statusMsg = (const char*)u8"部屋を作成しました！ 相手の接続を待っています...";
                 }
@@ -164,19 +183,19 @@ void NetworkLobbyUI::Render(GameContext& gameContext)
         }
         else
         {
-            // クライアント接続フォーム
             ImGui::TextDisabled((const char*)u8"教えてもらった部屋主のIPアドレスを入力してください:");
             ImGui::Spacing();
 
-            ImGui::SetNextItemWidth(-1);
+            ImGui::SetNextItemWidth(-1.0f);
             ImGui::InputTextWithHint("##HostIP", (const char*)u8"相手のIPアドレス (例: 192.168.x.x)", m_targetIpBuffer,
                                      sizeof(m_targetIpBuffer));
 
             ImGui::Spacing();
 
-            if (ImGui::Button((const char*)u8"相手の部屋に入る", ImVec2(-1, 44)))
+            if (ImGui::Button((const char*)u8"相手の部屋に入る",
+                              ImVec2(-1.0f, LobbyStyleConstants::BUTTON_ACTION_HEIGHT)))
             {
-                if (gameContext.networkManager.ConnectToHost(m_targetIpBuffer, 46860))
+                if (gameContext.networkManager.ConnectToHost(m_targetIpBuffer, LobbyUIConstants::DEFAULT_PORT))
                 {
                     m_statusMsg = (const char*)u8"部屋に接続しました！";
                 }
@@ -192,6 +211,5 @@ void NetworkLobbyUI::Render(GameContext& gameContext)
     }
 
     ImGui::EndChild();
-
     ImGui::End();
 }

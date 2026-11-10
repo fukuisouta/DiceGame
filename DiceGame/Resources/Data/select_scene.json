@@ -68,37 +68,6 @@
                 1.0,
                 1.0
             ],
-            "modelName": "SkyDoom.cmo",
-            "position": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "rigidBody": {
-                "damping": 0.9800000190734863,
-                "enabled": false,
-                "isStatic": false,
-                "mass": 1.0,
-                "useGravity": true
-            },
-            "rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "scale": [
-                100.0,
-                100.0,
-                100.0
-            ],
-            "tag": "Sky"
-        },
-        {
-            "collisionScale": [
-                1.0,
-                1.0,
-                1.0
-            ],
             "modelName": "AT.png",
             "position": [
                 -3.0999999046325684,
@@ -185,6 +154,37 @@
                 0.20000000298023224
             ],
             "tag": "TitleLogo"
+        },
+        {
+            "collisionScale": [
+                1.0,
+                1.0,
+                1.0
+            ],
+            "modelName": "SkyDoomT.cmo",
+            "position": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "rigidBody": {
+                "damping": 0.9800000190734863,
+                "enabled": false,
+                "isStatic": false,
+                "mass": 1.0,
+                "useGravity": true
+            },
+            "rotation": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "scale": [
+                100.0,
+                100.0,
+                100.0
+            ],
+            "tag": "Sky"
         }
     ]
 }

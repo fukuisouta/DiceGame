@@ -7,6 +7,21 @@
 using namespace DirectX;
 using namespace DirectX::SimpleMath;
 
+// ログ描画スタイル定数定義
+namespace LogStyleConstants
+{
+    constexpr size_t MAX_CHARS_PER_LINE = 19;    // 1行あたりの最大文字数
+    constexpr int MAX_VISIBLE_LOGS = 10;         // 1画面に表示可能な最大ログ件数
+    constexpr float HOVER_SCALE = 1.05f;         // ボタンホバー時の拡大倍率
+    constexpr float WINDOW_WIDTH = 400.0f;       // ログウィンドウの幅
+    constexpr float WINDOW_HEIGHT = 300.0f;      // ログウィンドウの高さ
+    constexpr float WINDOW_MARGIN_RIGHT = 10.0f; // ログウィンドウの右マージン
+    constexpr float WINDOW_POS_Y = 90.0f;        // ログウィンドウの表示Y座標
+    constexpr float TEXT_START_Y = 100.0f;       // テキスト表示開始Y座標
+    constexpr float LINE_SPACING = 24.0f;        // 1行あたりのピクセル高さ
+    constexpr float TEXT_MAX_Y_OFFSET = 260.0f;  // テキスト描画の最大Y限界値
+}
+
 // 初期化処理
 void GameLogManager::Initialize(ID3D11Device* device, ID3D11DeviceContext* context)
 {
@@ -19,12 +34,9 @@ void GameLogManager::Initialize(ID3D11Device* device, ID3D11DeviceContext* conte
                                       m_logButtonTexture.ReleaseAndGetAddressOf());
 }
 
-// ログ文字列の追加（19文字超えでの自動改行整形を含む）
+// ログ文字列の追加
 void GameLogManager::AddLog(const std::wstring& message)
 {
-    // 1行あたりの最大文字数を 19 に拡張（ウィンドウ幅に綺麗に収まる長さ）[cite: 58]
-    const size_t maxCharsPerLine = 19;
-
     std::wstring wrappedMessage;
     size_t count = 0;
 
@@ -32,7 +44,6 @@ void GameLogManager::AddLog(const std::wstring& message)
     {
         wchar_t ch = message[i];
 
-        // 既存の改行文字があればカウントをリセット[cite: 58]
         if (ch == L'\n')
         {
             count = 0;
@@ -40,8 +51,7 @@ void GameLogManager::AddLog(const std::wstring& message)
             continue;
         }
 
-        // 指定文字数を超えた場合のみ自動改行[cite: 58]
-        if (count >= maxCharsPerLine)
+        if (count >= LogStyleConstants::MAX_CHARS_PER_LINE)
         {
             wrappedMessage += L'\n';
             count = 0;
@@ -53,7 +63,7 @@ void GameLogManager::AddLog(const std::wstring& message)
 
     m_logs.push_back(wrappedMessage);
 
-    int maxVisible = 10;
+    int maxVisible = LogStyleConstants::MAX_VISIBLE_LOGS;
     m_scrollOffset = std::max(0, static_cast<int>(m_logs.size()) - maxVisible);
 }
 
@@ -80,7 +90,7 @@ void GameLogManager::Update(const DirectX::Mouse::State& mouseState, float scree
             else if (scrollDelta < 0)
                 m_scrollOffset += step;
 
-            int maxVisible = 10;
+            int maxVisible = LogStyleConstants::MAX_VISIBLE_LOGS;
             int maxOffset = std::max(0, static_cast<int>(m_logs.size()) - maxVisible);
 
             m_scrollOffset = std::clamp(m_scrollOffset, 0, maxOffset);
@@ -109,7 +119,7 @@ void GameLogManager::RenderButton(ID3D11DeviceContext* context, PrimitiveBatch<V
 
     float baseW = static_cast<float>(m_logButtonRect.right - m_logButtonRect.left);
     float baseH = static_cast<float>(m_logButtonRect.bottom - m_logButtonRect.top);
-    float scale = m_isButtonHovered ? 1.05f : 1.0f;
+    float scale = m_isButtonHovered ? LogStyleConstants::HOVER_SCALE : 1.0f;
 
     float bWidth = baseW * scale;
     float bHeight = baseH * scale;
@@ -139,7 +149,6 @@ void GameLogManager::Render(ID3D11DeviceContext* context, CommonStates& states, 
     if (!m_showLogWindow || batchColor == nullptr || effectColor == nullptr)
         return;
 
-    // 2D正射影行列の設定とエフェクト設定[cite: 58]
     Matrix projection = Matrix::CreateOrthographicOffCenter(0.0f, screenWidth, screenHeight, 0.0f, 0.0f, 1.0f);
     effectColor->SetProjection(projection);
     effectColor->SetWorld(Matrix::Identity);
@@ -167,10 +176,10 @@ void GameLogManager::Render(ID3D11DeviceContext* context, CommonStates& states, 
 
         batchColor->Begin();
 
-        float winWidth = 400.0f;
-        float winHeight = 300.0f;
-        float winX = screenWidth - winWidth - 10.0f;
-        float winY = 90.0f;
+        float winWidth = LogStyleConstants::WINDOW_WIDTH;
+        float winHeight = LogStyleConstants::WINDOW_HEIGHT;
+        float winX = screenWidth - winWidth - LogStyleConstants::WINDOW_MARGIN_RIGHT;
+        float winY = LogStyleConstants::WINDOW_POS_Y;
 
         Vector4 winCol(0.05f, 0.05f, 0.1f, 0.85f);
         VertexPositionColor w0(Vector3(winX, winY, 0.0f), winCol);
@@ -184,33 +193,31 @@ void GameLogManager::Render(ID3D11DeviceContext* context, CommonStates& states, 
         batchColor->End();
     }
 
-    // ログテキスト描画[cite: 58]
-    float winX = screenWidth - 400.0f - 10.0f;
-    float startY = 100.0f;
+    float winX = screenWidth - LogStyleConstants::WINDOW_WIDTH - LogStyleConstants::WINDOW_MARGIN_RIGHT;
+    float startY = LogStyleConstants::TEXT_START_Y;
 
     int startIdx = m_scrollOffset;
-    int endIdx = std::min(static_cast<int>(m_logs.size()), startIdx + 10);
+    int endIdx = std::min(static_cast<int>(m_logs.size()), startIdx + LogStyleConstants::MAX_VISIBLE_LOGS);
 
     float currentY = startY;
-    const float lineSpacing = 28.0f; // 行間を28px開けて文字重なりを防止[cite: 58]
+    const float lineSpacing = LogStyleConstants::LINE_SPACING;
 
     for (int i = startIdx; i < endIdx; ++i)
     {
-        if (currentY > startY + 260.0f)
+        if (currentY > startY + LogStyleConstants::TEXT_MAX_Y_OFFSET)
             break;
 
         debugRenderer.DrawText(Vector2(winX + 15.0f, currentY), Colors::Yellow, m_logs[i]);
 
-        // ログに含まれる改行('\n')の数をカウントしてY座標を計算加算[cite: 58]
-        size_t lineCount = 1;
+        size_t lineLines = 1;
         for (wchar_t ch : m_logs[i])
         {
             if (ch == L'\n')
             {
-                lineCount++;
+                lineLines++;
             }
         }
 
-        currentY += lineCount * lineSpacing;
+        currentY += lineLines * lineSpacing;
     }
 }

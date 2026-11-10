@@ -25,37 +25,38 @@ void CameraManager::Update(float dt, const Keyboard::State& kbState, const Keybo
     // デバッグ用の自由カメラ操作（Ctrl + I/K/U/J）
     if (isCtrlPressed)
     {
-        float cameraSpeed = 20.0f * dt;
+        float cameraSpeed = CameraManagerConstants::DEBUG_MOVE_SPEED_DISTANCE * dt;
         if (kbState.IsKeyDown(Keyboard::Keys::I))
-            m_cameraDistance -= cameraSpeed; // 接近
+            m_cameraDistance -= cameraSpeed;
         if (kbState.IsKeyDown(Keyboard::Keys::K))
-            m_cameraDistance += cameraSpeed; // 遠ざかる
+            m_cameraDistance += cameraSpeed;
         if (kbState.IsKeyDown(Keyboard::Keys::U))
-            m_cameraPitch += 25.0f * dt; // 見下ろし角度増加
+            m_cameraPitch += CameraManagerConstants::DEBUG_MOVE_SPEED_PITCH * dt;
         if (kbState.IsKeyDown(Keyboard::Keys::J))
-            m_cameraPitch -= 25.0f * dt; // 水平に近づく
+            m_cameraPitch -= CameraManagerConstants::DEBUG_MOVE_SPEED_PITCH * dt;
     }
 
-    // Cキー押下による視点切り替え（通常斜め視点 ⇔ 真上俯瞰視点）
+    // Cキー押下による視点切り替え
     if (kbTracker.IsKeyPressed(Keyboard::Keys::C))
     {
-        ToggleView(); // ★ 視点切り替えを共通関数へ集約
+        ToggleView();
     }
 
     // デバッグ操作中でない場合、目標値へスムーズに補間移動
     if (!isCtrlPressed)
     {
-        m_cameraPitch += (m_targetPitch - m_cameraPitch) * 10.0f * dt;
-        m_cameraDistance += (m_targetDistance - m_cameraDistance) * 10.0f * dt;
+        m_cameraPitch += (m_targetPitch - m_cameraPitch) * CameraManagerConstants::INTERPOLATION_SPEED * dt;
+        m_cameraDistance += (m_targetDistance - m_cameraDistance) * CameraManagerConstants::INTERPOLATION_SPEED * dt;
     }
 
     // 限界クランプ処理（画角破綻防止）
-    m_cameraDistance = std::clamp(m_cameraDistance, 10.0f, 60.0f);
-    m_cameraPitch = std::clamp(m_cameraPitch, 15.0f, 88.0f);
+    m_cameraDistance =
+        std::clamp(m_cameraDistance, CameraManagerConstants::MIN_DISTANCE, CameraManagerConstants::MAX_DISTANCE);
+    m_cameraPitch = std::clamp(m_cameraPitch, CameraManagerConstants::MIN_PITCH, CameraManagerConstants::MAX_PITCH);
 
     float radPitch = XMConvertToRadians(m_cameraPitch);
 
-    // プレイヤーの役割（ホスト 1P / クライアント 2P）に応じてカメラの視点方向を反転決定
+    // プレイヤーの役割（ホスト 1P / クライアント 2P）に応じてカメラの視点方向を決定
     if (isClient)
     {
         // 2P（クライアント）側：奥側から手前を見る方向

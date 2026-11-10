@@ -7,16 +7,39 @@
 
 namespace
 {
-    // 評価値の最大・最小安全バウンダリ（オーバーフロー防止用）
+    // 評価値の最大・最小安全バウンダリ
     constexpr int SCORE_INF = 1000000;
 
-    // サイコロの転がり方向（dx, dy）から移動後の上面の出目を予測計算するマップ
+    // AI評価重み定数定義
+    constexpr int SCORE_WIN = 100000;            // 勝利決定時の評価値
+    constexpr int SCORE_LOSE = -100000;          // 敗北決定時の評価値
+    constexpr int KING_BASE_VALUE = 8000;        // 王の基本評価価値
+    constexpr int PAWN_BASE_VALUE = 100;         // 兵の基本評価価値
+    constexpr int PAWN_FACE_MULTIPLIER = 30;     // 出目1あたりの評価倍率
+    constexpr int ADVANCE_DISTANCE_WEIGHT = 5;   // 盤面進行度（Y座標）の評価重み
+    constexpr int KING_ATTACK_BONUS_P2 = 1500;   // P1の王を狙える位置のボーナス
+    constexpr int KING_DANGER_PENALTY_P2 = 4000; // P2の王が危険な位置のペナルティ
+    constexpr int SHIELD_EVAL_SCORE = 200;       // 守護効果の評価点
+
+    constexpr int MOVE_SCORE_ATTACK_SHIELD_KING = -50000; // 守護状態の王への無効攻撃ペナルティ
+    constexpr int MOVE_SCORE_ATTACK_KING = 5000;          // 王攻撃成功時のボーナス
+    constexpr int MOVE_SCORE_ATTACK_FACE_ONE = -10000;    // 出目1のコマを攻撃する際のリスク
+    constexpr int MOVE_SCORE_ATTACK_PAWN = 800;           // 通常コマ攻撃成功ボーナス
+    constexpr int MOVE_SCORE_ATTACK_SHIELD = -3000;       // 守護状態コマ攻撃ペナルティ
+    constexpr int MOVE_SCORE_KING_ACE_KILL = 25000;       // 出目1で王を狙う最強手ボーナス
+    constexpr int MOVE_SCORE_KING_ATTACK_FAIL = -2000;    // 王攻撃失敗のリスクペナルティ
+    constexpr int MOVE_SCORE_ADVANCE_STEP = 30;           // 前進移動の標準加算スコア
+
+    constexpr int ROLL_MAP_COLS = 4; // サイコロ回転テーブルの方向カラム数
+    constexpr int ROLL_MAP_ROWS = 7; // サイコロ回転テーブルの面数
+
+    // サイコロの転がり方向から移動後の上面の出目を予測計算する関数
     int PredictFaceFromCurrent(int currentFace, int dx, int dy)
     {
         if (currentFace < 1 || currentFace > 6)
             return currentFace;
 
-        static const int rollMap[7][4] = {
+        static const int rollMap[ROLL_MAP_ROWS][ROLL_MAP_COLS] = {
             {0, 0, 0, 0}, {3, 4, 2, 5}, // 1: [右, 左, 上, 下]
             {3, 4, 6, 1},               // 2
             {6, 1, 2, 5},               // 3
@@ -59,21 +82,19 @@ void DiceBattleAI::Update(DiceBattleGame& game, float dt)
 
     m_thinkTimer = 0.0f;
 
-    // ダイスが未ロールの場合はターンを開始してダイスを振る
     if (game.GetRemainingSteps() <= 0)
     {
         game.StartTurn();
         return;
     }
 
-    // 移動処理を実行できない場合はターンを強制終了
     if (!ExecuteMove(game))
     {
         game.ForceEndTurn();
     }
 }
 
-// 盤面評価値の計算（AI=Player2視点）
+// 盤面評価値の計算
 int DiceBattleAI::EvaluateBoard(const SimBoard& board)
 {
     if (board.isGameOver)
@@ -82,9 +103,9 @@ int DiceBattleAI::EvaluateBoard(const SimBoard& board)
             return 0;
 
         if (board.winner == PlayerType::Player2)
-            return 100000;
+            return SCORE_WIN;
         if (board.winner == PlayerType::Player1)
-            return -100000;
+            return SCORE_LOSE;
     }
 
     if (m_ruleMode == GameRuleMode::Original)
@@ -109,19 +130,20 @@ int DiceBattleAI::EvaluateOriginal(const SimBoard& board)
         if (!piece.isActive)
             continue;
 
-        int pieceValue = (piece.type == PieceType::King) ? 8000 : (100 + piece.face * 30);
+        int pieceValue =
+            (piece.type == PieceType::King) ? KING_BASE_VALUE : (PAWN_BASE_VALUE + piece.face * PAWN_FACE_MULTIPLIER);
 
         if (piece.owner == PlayerType::Player2)
         {
             score += pieceValue;
-            score += piece.gridY * 5;
+            score += piece.gridY * ADVANCE_DISTANCE_WEIGHT;
             if (piece.type == PieceType::King)
                 p2King = &piece;
         }
         else
         {
             score -= pieceValue;
-            score -= (DiceBattleGame::BOARD_HEIGHT - 1 - piece.gridY) * 5;
+            score -= (DiceBattleGame::BOARD_HEIGHT - 1 - piece.gridY) * ADVANCE_DISTANCE_WEIGHT;
             if (piece.type == PieceType::King)
                 p1King = &piece;
         }
@@ -135,7 +157,7 @@ int DiceBattleAI::EvaluateOriginal(const SimBoard& board)
             {
                 int dist = std::abs(piece.gridX - p1King->gridX) + std::abs(piece.gridY - p1King->gridY);
                 if (dist == 1 && piece.face == 1)
-                    score += 1500;
+                    score += KING_ATTACK_BONUS_P2;
             }
         }
     }
@@ -148,7 +170,7 @@ int DiceBattleAI::EvaluateOriginal(const SimBoard& board)
             {
                 int dist = std::abs(piece.gridX - p2King->gridX) + std::abs(piece.gridY - p2King->gridY);
                 if (dist == 1 && piece.face == 1)
-                    score -= 4000;
+                    score -= KING_DANGER_PENALTY_P2;
             }
         }
     }
@@ -162,9 +184,9 @@ int DiceBattleAI::EvaluateAdvance(const SimBoard& board)
     int score = EvaluateOriginal(board);
 
     if (board.p2Shielded)
-        score += 200;
+        score += SHIELD_EVAL_SCORE;
     if (board.p1Shielded)
-        score -= 200;
+        score -= SHIELD_EVAL_SCORE;
 
     return score;
 }
@@ -209,7 +231,6 @@ std::vector<DiceBattleAI::MoveOption> DiceBattleAI::GenerateValidMoves(const Sim
         if (m_ruleMode == GameRuleMode::Advance && piece.isFrozen)
             continue;
 
-        // 王（King）の専用移動生成ロジック
         if (piece.type == PieceType::King)
         {
             for (int ny = kingMinY; ny <= kingMaxY; ++ny)
@@ -231,16 +252,16 @@ std::vector<DiceBattleAI::MoveOption> DiceBattleAI::GenerateValidMoves(const Sim
                     {
                         if (m_ruleMode == GameRuleMode::Advance && isTargetShielded)
                         {
-                            moveScore -= 50000;
+                            moveScore += MOVE_SCORE_ATTACK_SHIELD_KING;
                         }
                         else
                         {
                             if (targetPiece->type == PieceType::King)
-                                moveScore += 5000;
+                                moveScore += MOVE_SCORE_ATTACK_KING;
                             else if (targetPiece->face == 1)
-                                moveScore -= 10000;
+                                moveScore += MOVE_SCORE_ATTACK_FACE_ONE;
                             else
-                                moveScore += 800;
+                                moveScore += MOVE_SCORE_ATTACK_PAWN;
                         }
                     }
 
@@ -250,7 +271,6 @@ std::vector<DiceBattleAI::MoveOption> DiceBattleAI::GenerateValidMoves(const Sim
             continue;
         }
 
-        // 通常のダイスの移動生成ロジック
         for (int i = 0; i < 4; ++i)
         {
             int dx = dirX[i];
@@ -275,7 +295,7 @@ std::vector<DiceBattleAI::MoveOption> DiceBattleAI::GenerateValidMoves(const Sim
             {
                 if (m_ruleMode == GameRuleMode::Advance && isTargetShielded)
                 {
-                    moveScore -= 3000;
+                    moveScore += MOVE_SCORE_ATTACK_SHIELD;
                 }
                 else
                 {
@@ -285,9 +305,9 @@ std::vector<DiceBattleAI::MoveOption> DiceBattleAI::GenerateValidMoves(const Sim
                     if (targetPiece->type == PieceType::King)
                     {
                         if (myFutureFace == 1)
-                            moveScore += 25000;
+                            moveScore += MOVE_SCORE_KING_ACE_KILL;
                         else
-                            moveScore -= 2000;
+                            moveScore += MOVE_SCORE_KING_ATTACK_FAIL;
                     }
                     else
                     {
@@ -303,9 +323,9 @@ std::vector<DiceBattleAI::MoveOption> DiceBattleAI::GenerateValidMoves(const Sim
             else
             {
                 if (player == PlayerType::Player2 && dy == 1)
-                    moveScore += 30;
+                    moveScore += MOVE_SCORE_ADVANCE_STEP;
                 if (player == PlayerType::Player1 && dy == -1)
-                    moveScore += 30;
+                    moveScore += MOVE_SCORE_ADVANCE_STEP;
             }
 
             moves.push_back({piece.gridX, piece.gridY, targetX, targetY, moveScore});
@@ -425,7 +445,7 @@ DiceBattleAI::SimBoard DiceBattleAI::ApplyMove(const SimBoard& board, const Move
     return nextBoard;
 }
 
-// Alpha-Beta探索アルゴリズム（オーバーフロー防止対策適用）
+// Alpha-Beta探索アルゴリズム
 int DiceBattleAI::AlphaBeta(SimBoard board, int depth, int alpha, int beta, bool isMaximizing)
 {
     if (depth == 0 || board.isGameOver)
@@ -491,7 +511,6 @@ bool DiceBattleAI::ExecuteMove(DiceBattleGame& game)
         sp.type = piece.type;
         sp.face = (piece.type == PieceType::King) ? 7 : (piece.diceInstance ? piece.diceInstance->GetUpwardFace() : 1);
         sp.isActive = true;
-        
 
         currentBoard.pieces.push_back(sp);
     }
@@ -517,7 +536,6 @@ bool DiceBattleAI::ExecuteMove(DiceBattleGame& game)
         SimBoard nextBoard = ApplyMove(currentBoard, move, PlayerType::Player2);
         bool nextIsMax = (nextBoard.currentTurn == PlayerType::Player2);
 
-        // 安全な評価値算定
         int totalScore = move.score + AlphaBeta(nextBoard, m_searchDepth - 1, -SCORE_INF, SCORE_INF, nextIsMax);
 
         if (totalScore > bestScore)
@@ -534,17 +552,14 @@ bool DiceBattleAI::ExecuteMove(DiceBattleGame& game)
 
     if (bestMoves.empty())
     {
-        // 最悪判定でもとにかく合法手の先頭を実行してパス回避
         bestMoves.push_back(validMoves[0]);
     }
 
-    // 同点候補からランダム選出
     std::uniform_int_distribution<size_t> dist(0, bestMoves.size() - 1);
     MoveOption chosen = bestMoves[dist(m_rng)];
 
     bool success = game.MovePiece(chosen.fromX, chosen.fromY, chosen.toX, chosen.toY);
 
-    // 選択手で万が一失敗した場合は他の合法手を順番に適用試行
     if (!success)
     {
         for (const auto& fallbackMove : validMoves)

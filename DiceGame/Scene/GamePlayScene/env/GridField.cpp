@@ -4,6 +4,24 @@
 using namespace DirectX;
 using namespace DirectX::SimpleMath;
 
+// 盤面描画スタイル定数定義
+namespace GridFieldStyleConstants
+{
+    constexpr float FLOOR_Y = -0.01f;         // 床ポリゴンのY座標
+    constexpr float HIGHLIGHT_Y = 0.005f;     // ハイライト領域ポリゴンのY座標
+    constexpr float BORDER_Y_OFFSET = 0.001f; // ハイライト外枠線のY座標オフセット
+    constexpr float ICON_Y = 0.02f;           // 出目予測アイコンポリゴンのY座標
+    constexpr float ICON_PADDING = 0.25f;     // 出目予測アイコンのマス端パディング
+
+    constexpr float LUM_R_WEIGHT = 0.299f; // 輝度計算用赤色ウェイト
+    constexpr float LUM_G_WEIGHT = 0.587f; // 輝度計算用緑色ウェイト
+    constexpr float LUM_B_WEIGHT = 0.114f; // 輝度計算用青色ウェイト
+    constexpr float LUM_THRESHOLD = 0.5f;  // 輝度明暗判定スレッショルド
+
+    constexpr float ICON_ALPHA = 0.65f;   // 出目アイコン表示アルファ値
+    constexpr float DEFAULT_ALPHA = 1.0f; // 通常復元用アルファ値
+}
+
 // 盤面描画用シェーダー・プリミティブバッチの初期化
 void GridField::Initialize(ID3D11Device* device, ID3D11DeviceContext* context, int width, int height, float cellSize)
 {
@@ -12,17 +30,16 @@ void GridField::Initialize(ID3D11Device* device, ID3D11DeviceContext* context, i
     m_height = height;
     m_cellSize = cellSize;
 
-    // カラープリミティブ（床・枠線用）のセットアップ
     m_primitiveBatch = std::make_unique<PrimitiveBatch<VertexPositionColor>>(context);
     m_effect = std::make_unique<BasicEffect>(device);
     m_effect->SetVertexColorEnabled(true);
 
-    // テクスチャプリミティブ（移動先予想出目用）のセットアップ
     m_texPrimitiveBatch = std::make_unique<PrimitiveBatch<VertexPositionTexture>>(context);
     m_texEffect = std::make_unique<BasicEffect>(device);
     m_texEffect->SetTextureEnabled(true);
 }
 
+// フレーム更新処理
 void GridField::Update(float dt)
 {
     (void)dt;
@@ -44,8 +61,8 @@ void GridField::Render(ID3D11DeviceContext* context, const CommonStates& states,
 
     m_effect->Apply(context);
 
-    void const* shaderByteCode;
-    size_t byteCodeLength;
+    void const* shaderByteCode = nullptr;
+    size_t byteCodeLength = 0;
     m_effect->GetVertexShaderBytecode(&shaderByteCode, &byteCodeLength);
 
     Microsoft::WRL::ComPtr<ID3D11InputLayout> inputLayout;
@@ -55,15 +72,15 @@ void GridField::Render(ID3D11DeviceContext* context, const CommonStates& states,
 
     float totalWidth = m_width * m_cellSize;
     float totalHeight = m_height * m_cellSize;
-    float startX = -totalWidth * 0.5f;
-    float startZ = totalHeight * 0.5f;
-    float endX = totalWidth * 0.5f;
-    float endZ = -totalHeight * 0.5f;
+    float startX = -totalWidth * GridFieldConstants::HALF_SCALE;
+    float startZ = totalHeight * GridFieldConstants::HALF_SCALE;
+    float endX = totalWidth * GridFieldConstants::HALF_SCALE;
+    float endZ = -totalHeight * GridFieldConstants::HALF_SCALE;
 
     m_primitiveBatch->Begin();
 
     // 1. 床面（平面ポリゴン）の描画
-    float floorY = -0.01f;
+    float floorY = GridFieldStyleConstants::FLOOR_Y;
     VertexPositionColor f0(Vector3(startX, floorY, startZ), m_floorColor);
     VertexPositionColor f1(Vector3(endX, floorY, startZ), m_floorColor);
     VertexPositionColor f2(Vector3(startX, floorY, endZ), m_floorColor);
@@ -72,11 +89,14 @@ void GridField::Render(ID3D11DeviceContext* context, const CommonStates& states,
     m_primitiveBatch->DrawTriangle(f0, f2, f1);
     m_primitiveBatch->DrawTriangle(f1, f2, f3);
 
-    // 2. 床の明るさに応じて視認性の良いグリッド格子線の色を自動計算
-    float luminance = m_floorColor.R() * 0.299f + m_floorColor.G() * 0.587f + m_floorColor.B() * 0.114f;
-    Color gridColor = (luminance > 0.5f) ? Color(0.2f, 0.2f, 0.2f, 1.0f) : Color(0.8f, 0.8f, 0.8f, 1.0f);
+    // 2. グリッド格子線の色判定および描画
+    float luminance = m_floorColor.R() * GridFieldStyleConstants::LUM_R_WEIGHT +
+                      m_floorColor.G() * GridFieldStyleConstants::LUM_G_WEIGHT +
+                      m_floorColor.B() * GridFieldStyleConstants::LUM_B_WEIGHT;
 
-    // 縦グリッド線の描画
+    Color gridColor = (luminance > GridFieldStyleConstants::LUM_THRESHOLD) ? Color(0.2f, 0.2f, 0.2f, 1.0f)
+                                                                           : Color(0.8f, 0.8f, 0.8f, 1.0f);
+
     for (int x = 0; x <= m_width; ++x)
     {
         float currentX = startX + x * m_cellSize;
@@ -85,7 +105,6 @@ void GridField::Render(ID3D11DeviceContext* context, const CommonStates& states,
         m_primitiveBatch->DrawLine(v1, v2);
     }
 
-    // 横グリッド線の描画
     for (int y = 0; y <= m_height; ++y)
     {
         float currentZ = startZ - y * m_cellSize;
@@ -94,7 +113,6 @@ void GridField::Render(ID3D11DeviceContext* context, const CommonStates& states,
         m_primitiveBatch->DrawLine(v1, v2);
     }
 
-    // 特定のマス目を塗りつぶし・枠線描画するラムダ関数
     auto DrawCellFill = [&](int gridX, int gridY, const Color& fillColor, const Color& borderColor)
     {
         if (gridX < 0 || gridX >= m_width || gridY < 0 || gridY >= m_height)
@@ -104,7 +122,7 @@ void GridField::Render(ID3D11DeviceContext* context, const CommonStates& states,
         float maxX = minX + m_cellSize;
         float maxZ = startZ - gridY * m_cellSize;
         float minZ = maxZ - m_cellSize;
-        float highlightY = 0.005f;
+        float highlightY = GridFieldStyleConstants::HIGHLIGHT_Y;
 
         VertexPositionColor c0(Vector3(minX, highlightY, maxZ), fillColor);
         VertexPositionColor c1(Vector3(maxX, highlightY, maxZ), fillColor);
@@ -114,13 +132,13 @@ void GridField::Render(ID3D11DeviceContext* context, const CommonStates& states,
         m_primitiveBatch->DrawTriangle(c0, c3, c1);
         m_primitiveBatch->DrawTriangle(c1, c3, c2);
 
-        // 外枠線の描画
         if (borderColor.A() > 0.0f)
         {
-            VertexPositionColor b0(Vector3(minX, highlightY + 0.001f, maxZ), borderColor);
-            VertexPositionColor b1(Vector3(maxX, highlightY + 0.001f, maxZ), borderColor);
-            VertexPositionColor b2(Vector3(maxX, highlightY + 0.001f, minZ), borderColor);
-            VertexPositionColor b3(Vector3(minX, highlightY + 0.001f, minZ), borderColor);
+            float borderY = highlightY + GridFieldStyleConstants::BORDER_Y_OFFSET;
+            VertexPositionColor b0(Vector3(minX, borderY, maxZ), borderColor);
+            VertexPositionColor b1(Vector3(maxX, borderY, maxZ), borderColor);
+            VertexPositionColor b2(Vector3(maxX, borderY, minZ), borderColor);
+            VertexPositionColor b3(Vector3(minX, borderY, minZ), borderColor);
 
             m_primitiveBatch->DrawLine(b0, b1);
             m_primitiveBatch->DrawLine(b1, b2);
@@ -129,7 +147,6 @@ void GridField::Render(ID3D11DeviceContext* context, const CommonStates& states,
         }
     };
 
-    // 王（King）の移動可能範囲エリアのハイライト表示
     if (kingAllowedMinY >= 0 && kingAllowedMaxY >= 0)
     {
         Color zoneFill = Color(0.0f, 0.8f, 0.4f, 0.20f);
@@ -144,7 +161,6 @@ void GridField::Render(ID3D11DeviceContext* context, const CommonStates& states,
         }
     }
 
-    // 移動可能マスのハイライト描画
     Color moveFillColor = Color(0.0f, 0.95f, 0.5f, 0.40f);
     Color moveBorderColor = Color(0.2f, 1.0f, 0.7f, 1.00f);
 
@@ -153,15 +169,14 @@ void GridField::Render(ID3D11DeviceContext* context, const CommonStates& states,
         DrawCellFill(tile.gridX, tile.gridY, moveFillColor, moveBorderColor);
     }
 
-    // 蘇生選択モード時の自陣エリア描画、および通常選択・カーソルハイライト描画
     if (isReviveMode)
     {
         Color reviveFill = Color(0.8f, 0.2f, 1.0f, 0.45f);
         Color reviveBorder = Color(1.0f, 0.4f, 1.0f, 0.95f);
         for (int x = 0; x < m_width; ++x)
         {
-            DrawCellFill(x, 6, reviveFill, reviveBorder);
-            DrawCellFill(x, 7, reviveFill, reviveBorder);
+            DrawCellFill(x, GridFieldConstants::REVIVE_ROW_1, reviveFill, reviveBorder);
+            DrawCellFill(x, GridFieldConstants::REVIVE_ROW_2, reviveFill, reviveBorder);
         }
     }
     else
@@ -178,15 +193,15 @@ void GridField::Render(ID3D11DeviceContext* context, const CommonStates& states,
 
     m_primitiveBatch->End();
 
-    // 3. 移動先マス上への「予想上面出目」アイコンテクスチャ描画
+    // 3. 移動先マス上への出目予測アイコンテクスチャ描画
     if (faceTextures && !movableTiles.empty())
     {
         m_texEffect->SetWorld(Matrix::Identity);
         m_texEffect->SetView(view);
         m_texEffect->SetProjection(proj);
 
-        void const* texByteCode;
-        size_t texByteCodeLength;
+        void const* texByteCode = nullptr;
+        size_t texByteCodeLength = 0;
         m_texEffect->GetVertexShaderBytecode(&texByteCode, &texByteCodeLength);
 
         Microsoft::WRL::ComPtr<ID3D11InputLayout> texInputLayout;
@@ -194,23 +209,22 @@ void GridField::Render(ID3D11DeviceContext* context, const CommonStates& states,
                                     texByteCode, texByteCodeLength, texInputLayout.GetAddressOf());
         context->IASetInputLayout(texInputLayout.Get());
 
-        float padding = 0.25f;
+        float padding = GridFieldStyleConstants::ICON_PADDING;
 
         for (const auto& tile : movableTiles)
         {
             int face = tile.expectedFace;
-            if (face < 1 || face > 6 || !faceTextures[face])
+            if (face < GridFieldConstants::MIN_DICE_FACE || face > GridFieldConstants::MAX_DICE_FACE ||
+                !faceTextures[face])
                 continue;
 
-            // コマモデルに埋もれず視認できるよう一時的に深度テストを無効化
             context->OMSetDepthStencilState(states.DepthNone(), 0);
 
-            // アルファ値（半透明度）を設定してテクスチャを適用
             m_texEffect->SetTexture(faceTextures[face]);
-            m_texEffect->SetAlpha(0.65f);
+            m_texEffect->SetAlpha(GridFieldStyleConstants::ICON_ALPHA);
             m_texEffect->Apply(context);
 
-            float texY = 0.02f;
+            float texY = GridFieldStyleConstants::ICON_Y;
             float minX = startX + tile.gridX * m_cellSize + padding;
             float maxX = startX + (tile.gridX + 1) * m_cellSize - padding;
             float maxZ = startZ - tile.gridY * m_cellSize - padding;
@@ -229,8 +243,7 @@ void GridField::Render(ID3D11DeviceContext* context, const CommonStates& states,
             m_texPrimitiveBatch->End();
         }
 
-        // 描画完了後にアルファ値と深度ステートを既定値へ復元
-        m_texEffect->SetAlpha(1.0f);
+        m_texEffect->SetAlpha(GridFieldStyleConstants::DEFAULT_ALPHA);
         context->OMSetDepthStencilState(states.DepthDefault(), 0);
     }
 }

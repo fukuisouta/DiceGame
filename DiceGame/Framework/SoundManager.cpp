@@ -3,10 +3,11 @@
 #include <windows.h>
 #include <direct.h>
 
+// オーディオエンジンの初期化と音声ファイルのロード
 bool SoundManager::Initialize()
 {
-    // 現在の作業ディレクトリを出力ウィンドウに表示
-    char cwd[1024];
+    // デバッグ確認用に現在の作業ディレクトリを出力
+    char cwd[SoundConstants::CWD_BUFFER_SIZE];
     if (_getcwd(cwd, sizeof(cwd)) != nullptr)
     {
         OutputDebugStringA("[SoundManager] Current Directory: ");
@@ -14,7 +15,7 @@ bool SoundManager::Initialize()
         OutputDebugStringA("\n");
     }
 
-    // AudioEngineの初期化
+    // デバッグビルド時はデバッグ用オーディオエンジンフラグを設定
     DirectX::AUDIO_ENGINE_FLAGS eflags = DirectX::AudioEngine_Default;
 #if defined(_DEBUG)
     eflags |= DirectX::AudioEngine_Debug;
@@ -31,7 +32,7 @@ bool SoundManager::Initialize()
         return false;
     }
 
-    // 個別読み込み用のヘルパー関数
+    // 音声ファイルを個別に読み込んでマップへ割り当てるヘルパーラムダ関数
     auto LoadSound = [this](const wchar_t* path, auto& map, auto type, const char* debugName)
     {
         try
@@ -57,22 +58,24 @@ bool SoundManager::Initialize()
         }
     };
 
-    // --- BGMの読み込み ---
+    // --- BGMリソースの読み込み ---
     LoadSound(L"Resources/Sounds/TitleBGM.wav", m_bgmMap, BGMType::Title, "TitleBGM");
     LoadSound(L"Resources/Sounds/SelectBGM.wav", m_bgmMap, BGMType::Select, "SelectBGM");
     LoadSound(L"Resources/Sounds/PlayBGM.wav", m_bgmMap, BGMType::Play, "PlayBGM");
     LoadSound(L"Resources/Sounds/LobbyBGM.wav", m_bgmMap, BGMType::Lobby, "LobbyBGM");
 
-    // --- SEの読み込み ---
+    // --- SEリソースの読み込み ---
     LoadSound(L"Resources/Sounds/DiceRoll.wav", m_seMap, SEType::DiceRoll, "DiceRoll");
 
     return true;
 }
 
+// 毎フレームのオーディオエンジン更新処理
 void SoundManager::Update()
 {
     if (m_audioEngine && !m_audioEngine->Update())
     {
+        // クリティカルエラー発生時のログ出力
         if (m_audioEngine->IsCriticalError())
         {
             OutputDebugStringA("[SoundManager] AudioEngine Critical Error!\n");
@@ -80,8 +83,10 @@ void SoundManager::Update()
     }
 }
 
+// 指定した種類のBGMを再生
 void SoundManager::PlayBGM(BGMType type, bool loop, float volume)
 {
+    // 同一BGMが既に再生中の場合は処理をスキップ
     if (m_isPlaying && m_currentBGM == type && m_currentBGMInstance)
     {
         if (m_currentBGMInstance->GetState() == DirectX::SoundState::PLAYING)
@@ -90,6 +95,7 @@ void SoundManager::PlayBGM(BGMType type, bool loop, float volume)
 
     StopBGM();
 
+    // 音源マップから検索して再生インスタンスを生成
     auto it = m_bgmMap.find(type);
     if (it != m_bgmMap.end() && it->second)
     {
@@ -109,6 +115,7 @@ void SoundManager::PlayBGM(BGMType type, bool loop, float volume)
     }
 }
 
+// 現在再生中のBGMを停止
 void SoundManager::StopBGM()
 {
     if (m_currentBGMInstance)
@@ -119,13 +126,14 @@ void SoundManager::StopBGM()
     m_isPlaying = false;
 }
 
-// SE（効果音）の再生
+// 指定した種類のSEをワンショット再生
 void SoundManager::PlaySE(SEType type, float volume)
 {
     auto it = m_seMap.find(type);
     if (it != m_seMap.end() && it->second)
     {
-        it->second->Play(volume, 0.0f, 0.0f);
+        // マクロ衝突回避用に改名された定数 (SND_DEFAULT_PITCH / SND_DEFAULT_PAN) を使用
+        it->second->Play(volume, SoundConstants::SND_DEFAULT_PITCH, SoundConstants::SND_DEFAULT_PAN);
     }
     else
     {
@@ -133,6 +141,7 @@ void SoundManager::PlaySE(SEType type, float volume)
     }
 }
 
+// 再生中のBGM音量を変更
 void SoundManager::SetBGMVolume(float volume)
 {
     if (m_currentBGMInstance)
@@ -141,6 +150,7 @@ void SoundManager::SetBGMVolume(float volume)
     }
 }
 
+// オーディオエンジン全体のマスター音量を変更
 void SoundManager::SetMasterVolume(float volume)
 {
     if (m_audioEngine)

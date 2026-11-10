@@ -8,7 +8,13 @@
 using namespace DirectX;
 using namespace DirectX::SimpleMath;
 
-// 歩数（1〜3）に応じた標準ダイス回転姿態（クォータニオン）の取得
+// スナップ計算用定数
+namespace DiceSnapConstants
+{
+    constexpr float SNAP_DOT_THRESHOLD = -100.0f;
+}
+
+// 歩数（1〜3）に応じた標準ダイス回転姿勢の取得
 static Quaternion GetStepDiceQuaternion(int stepValue)
 {
     switch (stepValue)
@@ -64,7 +70,7 @@ int GetFaceFromRotation(const Quaternion& rot)
     snappedRot.Inverse(invRot);
     Vector3 localUp = Vector3::Transform(worldUp, invRot);
 
-    float maxDot = -100.0f;
+    float maxDot = DiceSnapConstants::SNAP_DOT_THRESHOLD;
     int bestFace = 1;
 
     for (const auto& face : faces)
@@ -79,7 +85,7 @@ int GetFaceFromRotation(const Quaternion& rot)
     return bestFace;
 }
 
-// 初期化（コマの配置・歩数ダイスのセットアップ）
+// 初期化
 void DiceBattleGame::Initialize(ID3D11Device* device, ID3D11DeviceContext* context)
 {
     m_device = device;
@@ -100,7 +106,7 @@ void DiceBattleGame::Initialize(ID3D11Device* device, ID3D11DeviceContext* conte
     m_isShielded[PlayerType::Player1] = false;
     m_isShielded[PlayerType::Player2] = false;
 
-    float cellSize = 2.0f;
+    float cellSize = DiceBattleConstants::CELL_SIZE;
     float leftEdgeX = -(BOARD_WIDTH * cellSize * 0.5f) - 3.0f;
     m_stepDice.Initialize(device, context, "Resources/Models/hDice.cmo");
     m_stepDice.SetPosition(Vector3(leftEdgeX, -10.0f, -8.0f));
@@ -143,14 +149,12 @@ void DiceBattleGame::Initialize(ID3D11Device* device, ID3D11DeviceContext* conte
         m_pieces.push_back(piece);
     };
 
-    // プレイヤー2（敵）陣地コマの初期配置
     AddPiece(PlayerType::Player2, PieceType::Pawn, 0, 0);
     AddPiece(PlayerType::Player2, PieceType::Pawn, 2, 0);
     AddPiece(PlayerType::Player2, PieceType::King, 4, 0);
     AddPiece(PlayerType::Player2, PieceType::Pawn, 6, 0);
     AddPiece(PlayerType::Player2, PieceType::Pawn, 8, 0);
 
-    // プレイヤー1（自分）陣地コマの初期配置
     AddPiece(PlayerType::Player1, PieceType::Pawn, 0, 7);
     AddPiece(PlayerType::Player1, PieceType::Pawn, 2, 7);
     AddPiece(PlayerType::Player1, PieceType::King, 4, 7);
@@ -158,7 +162,7 @@ void DiceBattleGame::Initialize(ID3D11Device* device, ID3D11DeviceContext* conte
     AddPiece(PlayerType::Player1, PieceType::Pawn, 8, 7);
 }
 
-// 全オブジェクト姿勢の同期パケット構築（ホスト側送信機能）
+// 同期パケット構築
 void DiceBattleGame::BuildWorldSyncPacket(MsgWorldSync& outPacket) const
 {
     outPacket.header.size = sizeof(MsgWorldSync);
@@ -187,14 +191,17 @@ void DiceBattleGame::BuildWorldSyncPacket(MsgWorldSync& outPacket) const
     }
 }
 
-// ワールド姿勢の適用（クライアント側受信機能）
+// 同期パケット適用
 void DiceBattleGame::ApplyWorldSyncFromHost(const MsgWorldSync& syncData)
 {
-    Vector3 sPos(syncData.stepDiceTransform.posX, syncData.stepDiceTransform.posY, syncData.stepDiceTransform.posZ);
-    Quaternion sRot(syncData.stepDiceTransform.rotX, syncData.stepDiceTransform.rotY, syncData.stepDiceTransform.rotZ,
-                    syncData.stepDiceTransform.rotW);
-    m_stepDice.SetPosition(sPos);
-    m_stepDice.SetRotation(sRot);
+    if (!m_isWaitingForRoll && m_remainingSteps == 0)
+    {
+        Vector3 sPos(syncData.stepDiceTransform.posX, syncData.stepDiceTransform.posY, syncData.stepDiceTransform.posZ);
+        Quaternion sRot(syncData.stepDiceTransform.rotX, syncData.stepDiceTransform.rotY,
+                        syncData.stepDiceTransform.rotZ, syncData.stepDiceTransform.rotW);
+        m_stepDice.SetPosition(sPos);
+        m_stepDice.SetRotation(sRot);
+    }
 
     for (size_t i = 0; i < syncData.pieceCount && i < m_pieces.size(); ++i)
     {
@@ -205,7 +212,7 @@ void DiceBattleGame::ApplyWorldSyncFromHost(const MsgWorldSync& syncData)
         p.gridY = src.gridY;
         p.isActive = src.isActive;
 
-        if (p.diceInstance)
+        if (p.diceInstance && p.rotProgress >= 1.0f)
         {
             Vector3 pos(src.transform.posX, src.transform.posY, src.transform.posZ);
             Quaternion rot(src.transform.rotX, src.transform.rotY, src.transform.rotZ, src.transform.rotW);
@@ -216,10 +223,10 @@ void DiceBattleGame::ApplyWorldSyncFromHost(const MsgWorldSync& syncData)
     }
 }
 
-// マス目（GridX, GridY）から3Dワールド座標への変換
+// 座標変換
 Vector3 DiceBattleGame::GridToWorldPosition(int gridX, int gridY) const
 {
-    float cellSize = 2.0f;
+    float cellSize = DiceBattleConstants::CELL_SIZE;
     float offsetX = -(BOARD_WIDTH - 1) * cellSize * 0.5f;
     float offsetZ = (BOARD_HEIGHT - 1) * cellSize * 0.5f;
 
@@ -229,19 +236,19 @@ Vector3 DiceBattleGame::GridToWorldPosition(int gridX, int gridY) const
     return Vector3(x, 1.0f, z);
 }
 
-// ターン開始・ダイス回転アニメーションの開始
+// ターン開始
 void DiceBattleGame::StartTurn()
 {
     if (m_isGameOver || m_isWaitingForRoll || m_hasRolledThisTurn || m_remainingSteps > 0)
         return;
 
     m_isWaitingForRoll = true;
-    m_hasRolledThisTurn = true; // 振り開始フラグをマーク
-    m_rollAnimTimer = ROLL_ANIM_DURATION;
+    m_hasRolledThisTurn = true;
+    m_rollAnimTimer = DiceBattleConstants::ROLL_ANIM_DURATION;
     m_remainingSteps = 0;
     m_justLandedSteps = 0;
 
-    float cellSize = 2.0f;
+    float cellSize = DiceBattleConstants::CELL_SIZE;
     float leftEdgeX = -(BOARD_WIDTH * cellSize * 0.5f) - 3.0f;
     float rightEdgeX = (BOARD_WIDTH * cellSize * 0.5f) + 3.0f;
 
@@ -260,7 +267,7 @@ void DiceBattleGame::StartTurn()
     SoundManager::GetInstance().PlaySE(SEType::DiceRoll);
 }
 
-// 固定歩数でのターン開始
+// 固定歩数でターン開始
 void DiceBattleGame::StartTurnWithSteps(int fixedSteps)
 {
     if (m_isWaitingForRoll || m_hasRolledThisTurn || m_remainingSteps > 0)
@@ -270,7 +277,7 @@ void DiceBattleGame::StartTurnWithSteps(int fixedSteps)
     StartTurn();
 }
 
-// 出目をアニメーションなしで即時決定
+// 即時決定
 void DiceBattleGame::SetDiceResultImmediately(int steps)
 {
     m_isWaitingForRoll = false;
@@ -280,14 +287,14 @@ void DiceBattleGame::SetDiceResultImmediately(int steps)
 
     m_stepDice.SetRotation(GetStepDiceQuaternion(steps));
 
-    float cellSize = 2.0f;
+    float cellSize = DiceBattleConstants::CELL_SIZE;
     float edgeX = (m_currentTurn == PlayerType::Player1) ? (-(BOARD_WIDTH * cellSize * 0.5f) - 3.0f)
                                                          : ((BOARD_WIDTH * cellSize * 0.5f) + 3.0f);
 
     m_stepDice.SetPosition(Vector3(edgeX, 1.0f, 0.0f));
 }
 
-// 毎フレームのダイスアニメーションおよびコマ回転アニメーション更新
+// フレーム更新処理
 void DiceBattleGame::Update(float dt)
 {
     if (m_isWaitingForRoll)
@@ -296,10 +303,10 @@ void DiceBattleGame::Update(float dt)
 
         if (m_rollAnimTimer > 0.0f)
         {
-            float t = 1.0f - (m_rollAnimTimer / ROLL_ANIM_DURATION);
+            float t = 1.0f - (m_rollAnimTimer / DiceBattleConstants::ROLL_ANIM_DURATION);
             Vector3 currentPos = Vector3::Lerp(m_throwStartPos, m_throwTargetPos, t);
 
-            float arcHeight = 3.5f;
+            float arcHeight = DiceBattleConstants::STEP_DICE_THROW_ARC_HEIGHT;
             currentPos.y += std::sin(t * XM_PI) * arcHeight;
 
             m_stepDice.SetPosition(currentPos);
@@ -331,7 +338,7 @@ void DiceBattleGame::Update(float dt)
             m_stepDice.SetPosition(m_throwTargetPos);
             m_isWaitingForRoll = false;
 
-            SoundManager::GetInstance().PlaySE(SEType::DiceRoll, 5.0f);
+            SoundManager::GetInstance().PlaySE(SEType::DiceRoll, DiceBattleConstants::DICE_SE_VOLUME_LAND);
 
             m_justLandedSteps = targetVal;
         }
@@ -350,16 +357,14 @@ void DiceBattleGame::Update(float dt)
         {
             if (piece.rotProgress < 1.0f)
             {
-                piece.rotProgress += dt * ROTATION_SPEED;
+                piece.rotProgress += dt * DiceBattleConstants::ROTATION_SPEED;
                 if (piece.rotProgress >= 1.0f)
                 {
                     piece.rotProgress = 1.0f;
                     piece.diceInstance->SetRotation(piece.targetRot);
                     piece.diceInstance->SetPosition(piece.targetPos);
 
-                    SoundManager::GetInstance().PlaySE(SEType::DiceRoll, 2.0f);
-
-
+                    SoundManager::GetInstance().PlaySE(SEType::DiceRoll, DiceBattleConstants::DICE_SE_VOLUME_NORMAL);
                 }
                 else
                 {
@@ -388,7 +393,7 @@ void DiceBattleGame::Update(float dt)
     }
 }
 
-// ゲームモデルの描画
+// 描画処理
 void DiceBattleGame::Render(ID3D11DeviceContext* context, CommonStates& states, const Matrix& view, const Matrix& proj)
 {
     if (m_isWaitingForRoll || m_remainingSteps > 0)
@@ -405,7 +410,7 @@ void DiceBattleGame::Render(ID3D11DeviceContext* context, CommonStates& states, 
     }
 }
 
-// 座標指定でのコマ取得
+// コマ取得
 const BoardPiece* DiceBattleGame::GetPieceAt(int x, int y) const
 {
     for (const auto& piece : m_pieces)
@@ -426,7 +431,7 @@ BoardPiece* DiceBattleGame::GetPieceAt(int x, int y)
     return nullptr;
 }
 
-// コマの移動実行および戦闘勝敗・ターン遷移
+// コマの移動実行
 bool DiceBattleGame::MovePiece(int fromX, int fromY, int toX, int toY)
 {
     if (m_isGameOver || m_isWaitingForRoll || m_remainingSteps <= 0)
@@ -476,9 +481,7 @@ bool DiceBattleGame::MovePiece(int fromX, int fromY, int toX, int toY)
 
         attacker->rotProgress = 0.0f;
 
-        SoundManager::GetInstance().PlaySE(SEType::DiceRoll, 2.0f);
-
-
+        SoundManager::GetInstance().PlaySE(SEType::DiceRoll, DiceBattleConstants::DICE_SE_VOLUME_NORMAL);
     }
 
     if (targetPiece && targetPiece->owner != m_currentTurn)
@@ -503,13 +506,13 @@ bool DiceBattleGame::MovePiece(int fromX, int fromY, int toX, int toY)
     if (m_remainingSteps <= 0)
     {
         m_currentTurn = (m_currentTurn == PlayerType::Player1) ? PlayerType::Player2 : PlayerType::Player1;
-        m_hasRolledThisTurn = false; // ターン切り替え時に振り済みフラグをリセット
+        m_hasRolledThisTurn = false;
     }
 
     return true;
 }
 
-// 対戦バトル結果の勝敗解決ロジック
+// 対戦バトル解決
 void DiceBattleGame::ResolveBattle(BoardPiece& attacker, BoardPiece& defender, int targetX, int targetY)
 {
     int attackerX = attacker.gridX;
@@ -521,7 +524,6 @@ void DiceBattleGame::ResolveBattle(BoardPiece& attacker, BoardPiece& defender, i
         return;
     }
 
-    // 王（King）同士の相討ち
     if (attacker.type == PieceType::King && defender.type == PieceType::King)
     {
         RemovePieceAt(attackerX, attackerY);
@@ -532,7 +534,6 @@ void DiceBattleGame::ResolveBattle(BoardPiece& attacker, BoardPiece& defender, i
         return;
     }
 
-    // 攻撃側が王の場合（相手の出目1なら相討ち/撃破される）
     if (attacker.type == PieceType::King)
     {
         int defFace = defender.diceInstance ? GetFaceFromRotation(defender.targetRot) : 1;
@@ -549,7 +550,6 @@ void DiceBattleGame::ResolveBattle(BoardPiece& attacker, BoardPiece& defender, i
         return;
     }
 
-    // 防御側が王の場合（攻撃出目1なら王を撃破）
     if (defender.type == PieceType::King)
     {
         int atkFace = attacker.diceInstance ? GetFaceFromRotation(attacker.targetRot) : 1;
@@ -566,7 +566,6 @@ void DiceBattleGame::ResolveBattle(BoardPiece& attacker, BoardPiece& defender, i
         return;
     }
 
-    // 通常コマ同士の出目数値比較
     int atkFace = attacker.diceInstance ? GetFaceFromRotation(attacker.targetRot) : 1;
     int defFace = defender.diceInstance ? GetFaceFromRotation(defender.targetRot) : 1;
 
@@ -582,13 +581,11 @@ void DiceBattleGame::ResolveBattle(BoardPiece& attacker, BoardPiece& defender, i
     }
     else
     {
-        // 同数の場合は相討ち
-        RemovePieceAt(attackerX, attackerY);
         RemovePieceAt(targetX, targetY);
     }
 }
 
-// ゲーム全滅・終了条件チェック
+// 全滅・終了判定
 void DiceBattleGame::CheckGameEndConditions()
 {
     if (m_isGameOver)
@@ -621,7 +618,6 @@ void DiceBattleGame::CheckGameEndConditions()
         }
     }
 
-    // 両者王非生存、または双方通常コマ全滅時の引き分け判定
     if ((!p1KingAlive && !p2KingAlive) || (p1KingAlive && p2KingAlive && p1NonKingCount == 0 && p2NonKingCount == 0))
     {
         m_isGameOver = true;
@@ -646,7 +642,7 @@ void DiceBattleGame::CheckGameEndConditions()
     }
 }
 
-// 盤面コマの削除
+// コマ削除
 void DiceBattleGame::RemovePieceAt(int x, int y)
 {
     for (auto& piece : m_pieces)
@@ -654,12 +650,32 @@ void DiceBattleGame::RemovePieceAt(int x, int y)
         if (piece.isActive && piece.gridX == x && piece.gridY == y)
         {
             piece.isActive = false;
+
+            if (m_onPieceDefeated)
+            {
+                std::string modelPath;
+                if (piece.owner == PlayerType::Player1)
+                {
+                    modelPath = (piece.type == PieceType::King) ? "Resources/Models/KDice.cmo"
+                                                                : "Resources/Models/BlueDice.cmo";
+                }
+                else
+                {
+                    modelPath = (piece.type == PieceType::King) ? "Resources/Models/EKDice.cmo"
+                                                                : "Resources/Models/RedDice.cmo";
+                }
+
+                Vector3 attackerPos = GridToWorldPosition(m_cursorX, m_cursorY);
+                Vector3 victimPos = GridToWorldPosition(x, y);
+
+                m_onPieceDefeated(attackerPos, victimPos, modelPath);
+            }
             break;
         }
     }
 }
 
-// 指定位置へのコマ動的生成・追加
+// 動的コマ追加
 void DiceBattleGame::AddPieceAt(int x, int y, PlayerType owner, PieceType type, int topValue)
 {
     (void)topValue;
@@ -699,7 +715,7 @@ void DiceBattleGame::AddPieceAt(int x, int y, PlayerType owner, PieceType type, 
     m_pieces.push_back(piece);
 }
 
-// 蘇生対象となる撃破済みコマの存在判定
+// 撃破済みコマ判定
 bool DiceBattleGame::HasDeadPiece(PlayerType player) const
 {
     for (const auto& piece : m_pieces)
@@ -712,7 +728,7 @@ bool DiceBattleGame::HasDeadPiece(PlayerType player) const
     return false;
 }
 
-// スキル用：コマの蘇生処理
+// 蘇生処理
 bool DiceBattleGame::RevivePieceAt(PlayerType player, int targetX, int targetY)
 {
     if (GetPieceAt(targetX, targetY) != nullptr)

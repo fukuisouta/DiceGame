@@ -8,71 +8,66 @@
 #include <GeometricPrimitive.h>
 #include <Model.h>
 
-// ============================================================================
-// 物理演算用コンポーネント構造体
-// オブジェクトの質点、速度、力、重力適用状態などの物理パラメータを保持します
-// ============================================================================
+// 物理演算に関する共通定数定義
+namespace PhysicsConstants
+{
+    constexpr float DEFAULT_MASS = 1.0f;     // オブジェクトのデフォルト質量 (Kg)
+    constexpr float DEFAULT_DAMPING = 0.98f; // 移動速度のデフォルト空気抵抗・減衰率
+}
+
+// 物理演算パラメータを保持するコンポーネント構造体
 struct RigidBodyComponent
 {
-    bool enabled = false;   // 物理演算の有効/無効フラグ
-    bool useGravity = true; // 重力加速度の適用フラグ
-    bool isStatic = false;  // 固定オブジェクトフラグ（静的障害物など）
+    bool enabled = false;   // 物理演算の有効・無効切り替えフラグ
+    bool useGravity = true; // 重力加速度を適用するかどうかのフラグ
+    bool isStatic = false;  // 位置を固定する静的オブジェクトかどうかのフラグ
 
-    float mass = 1.0f;     // 質量 (Kg)
-    float damping = 0.98f; // 移動速度の空気抵抗・減衰率
+    float mass = PhysicsConstants::DEFAULT_MASS;       // オブジェクトの質量 (Kg)
+    float damping = PhysicsConstants::DEFAULT_DAMPING; // 移動速度の減衰率 (0.0f～1.0f)
 
-    DirectX::SimpleMath::Vector3 velocity = {0.0f, 0.0f, 0.0f}; // 現在の移動速度ベクトル
-    DirectX::SimpleMath::Vector3 force = {0.0f, 0.0f, 0.0f};    // 累積外力ベクトル
+    DirectX::SimpleMath::Vector3 velocity = {0.0f, 0.0f, 0.0f}; // 現在の平行移動速度ベクトル
+    DirectX::SimpleMath::Vector3 force = {0.0f, 0.0f, 0.0f};    // フレーム内で加算された累積外力ベクトル
 
-    // 累積外力ベクトルに力を加算します
+    // 累積外力ベクトルに新たな力を加算する関数
     void AddForce(const DirectX::SimpleMath::Vector3& f)
     {
         force += f;
     }
 };
 
-// ============================================================================
-// シリアライズ（JSONファイルの保存および読み込み）専用の軽量トランスフォーム構造体
-// 描画リソースを持たず、座標・回転・スケール・物理設定データのみを保持します
-// ============================================================================
+// JSONファイルのシリアライズ・デシリアライズ専用トランスフォーム構造体
 struct ObjectTransform
 {
-    std::string modelName;                                            // 参照するモデル名 / 識別名
-    std::string tag = "Default";                                      // 識別タグ（例: "Player", "Enemy", "Stage"）
-    DirectX::SimpleMath::Vector3 position = {0.0f, 0.0f, 0.0f};       // ワールド位置 (X, Y, Z)
-    DirectX::SimpleMath::Vector3 rotation = {0.0f, 0.0f, 0.0f};       // オイラー角回転 (Pitch, Yaw, Roll)
-    DirectX::SimpleMath::Vector3 scale = {1.0f, 1.0f, 1.0f};          // 描画表示スケール
-    DirectX::SimpleMath::Vector3 collisionScale = {1.0f, 1.0f, 1.0f}; // 当たり判定用衝突スケール
+    std::string modelName;       // 読み込み対象の3Dモデル名・リソース識別名
+    std::string tag = "Default"; // オブジェクトの種別を識別するタグ名 (Player, Enemy, Stage等)
+    DirectX::SimpleMath::Vector3 position = {0.0f, 0.0f, 0.0f};       // ワールド空間上の位置座標 (X, Y, Z)
+    DirectX::SimpleMath::Vector3 rotation = {0.0f, 0.0f, 0.0f};       // オイラー角による回転角度 (Pitch, Yaw, Roll)
+    DirectX::SimpleMath::Vector3 scale = {1.0f, 1.0f, 1.0f};          // 描画モデルの表示スケール
+    DirectX::SimpleMath::Vector3 collisionScale = {1.0f, 1.0f, 1.0f}; // 当たり判定・衝突計算用スケール
 
-    RigidBodyComponent rigidBody; // 物理演算パラメータ
+    RigidBodyComponent rigidBody; // 物理演算パラメータ構造体
 };
 
-// ============================================================================
-// シーン全体データをまとめるルートコンテナ構造体
-// JSONと1対1で相互変換されるオブジェクトリストを保持します
-// ============================================================================
+// シーン全体データを保持するルートコンテナ構造体
 struct SceneData
 {
     std::vector<ObjectTransform> objects; // シーン内に存在する全オブジェクトのトランスフォーム配列
 };
 
-// ============================================================================
-// エディタ上およびゲームシーン上に実体化された配置用オブジェクト構造体
-// トランスフォームデータに加え、Direct3D描画用モデルポインタを管理します
-// ============================================================================
+// ゲーム空間およびエディタ上で実体化された配置用オブジェクト構造体
 struct PlacedObject
 {
-    std::string name;            // エディタ表示用オブジェクト名
-    std::string cmoFileName;     // ロード元CMOモデルファイル名
-    std::string tag = "Default"; // 識別タグ
+    std::string name;            // エディタのヒエラルキー等で表示するオブジェクト名
+    std::string cmoFileName;     // ロード元のCMOモデルファイルパス
+    std::string tag = "Default"; // オブジェクトの識別タグ名
 
-    DirectX::SimpleMath::Vector3 position = {0.0f, 0.0f, 0.0f};       // ワールド位置
-    DirectX::SimpleMath::Vector3 rotation = {0.0f, 0.0f, 0.0f};       // オイラー角回転
-    DirectX::SimpleMath::Vector3 scale = {1.0f, 1.0f, 1.0f};          // 表示スケール
-    DirectX::SimpleMath::Vector3 collisionScale = {1.0f, 1.0f, 1.0f}; // 当たり判定スケール
+    DirectX::SimpleMath::Vector3 position = {0.0f, 0.0f, 0.0f};       // ワールド空間上の位置座標
+    DirectX::SimpleMath::Vector3 rotation = {0.0f, 0.0f, 0.0f};       // オイラー角による回転角度
+    DirectX::SimpleMath::Vector3 scale = {1.0f, 1.0f, 1.0f};          // 描画モデルの表示スケール
+    DirectX::SimpleMath::Vector3 collisionScale = {1.0f, 1.0f, 1.0f}; // 当たり判定計算用スケール
 
-    std::shared_ptr<DirectX::Model> model;                  // DirectXTK 3Dモデルリソース
-    std::shared_ptr<DirectX::GeometricPrimitive> primitive; // 簡易形状（Box, Sphere等）描画リソース
+    std::shared_ptr<DirectX::Model> model;                  // DirectXTKの3Dメッシュモデルリソース
+    std::shared_ptr<DirectX::GeometricPrimitive> primitive; // 簡易描画用形状プリミティブ (Box, Sphere等)
 
-    RigidBodyComponent rigidBody; // 実行用物理パラメータ
+    RigidBodyComponent rigidBody; // 実行時に使用する物理演算コンポーネント
 };

@@ -8,23 +8,26 @@
 
 using json = nlohmann::json;
 
-// ============================================================================
-// シーンデータのJSONシリアライズ（保存）およびデシリアライズ（読み込み）クラス
-// ============================================================================
+// JSONシリアライズ・デシリアライズ用定数定義
+namespace SerializerConstants
+{
+    constexpr int JSON_INDENT_SPACES = 4;       // JSONファイル出力時の整形用インデントスペース数
+    constexpr size_t VECTOR3_ELEMENT_COUNT = 3; // 3次元ベクトル成分数 (X, Y, Z)
+}
+
+// シーンデータのJSON形式での保存および読み込みを行う静的クラス
 class SceneSerializer
 {
 public:
-    // ------------------------------------------------------------------------
-    // SceneData を JSON ファイルとして出力保存します
-    // [引数] filePath: 保存先パス, sceneData: 保存対象のシーンデータ
-    // [戻り値] 保存成功時 true, 失敗時 false
-    // ------------------------------------------------------------------------
+    // 構成されたSceneData構造体をJSONファイルとしてディスクに保存する関数
+    // 引数 filePath: 保存先のファイルパス, sceneData: 保存対象のシーンデータ
+    // 戻り値: 保存成功時 true, 失敗時 false
     static bool SaveToJson(const std::string& filePath, const SceneData& sceneData)
     {
         json root;
         root["objects"] = json::array();
 
-        // シーン内の全オブジェクト構造体をJSON形式へ変換
+        // シーン内の全オブジェクトをJSON形式に変換
         for (const auto& obj : sceneData.objects)
         {
             json objJson;
@@ -33,11 +36,9 @@ public:
             objJson["position"] = {obj.position.x, obj.position.y, obj.position.z};
             objJson["rotation"] = {obj.rotation.x, obj.rotation.y, obj.rotation.z};
             objJson["scale"] = {obj.scale.x, obj.scale.y, obj.scale.z};
-
-            // 当たり判定スケールの保存
             objJson["collisionScale"] = {obj.collisionScale.x, obj.collisionScale.y, obj.collisionScale.z};
 
-            // 物理演算（RigidBody）パラメータの保存
+            // 物理演算属性のJSON変換
             json rbJson;
             rbJson["enabled"] = obj.rigidBody.enabled;
             rbJson["useGravity"] = obj.rigidBody.useGravity;
@@ -49,7 +50,7 @@ public:
             root["objects"].push_back(objJson);
         }
 
-        // 保存先フォルダが存在しない場合は自動作成
+        // 出力先ディレクトリが存在しない場合は作成する
         try
         {
             std::filesystem::create_directories(std::filesystem::path(filePath).parent_path());
@@ -59,20 +60,18 @@ public:
             return false;
         }
 
-        // ファイルオープンおよびインデント整形して書き出し
+        // ファイルを開いてインデント整形して保存
         std::ofstream file(filePath);
         if (!file.is_open())
             return false;
 
-        file << std::setw(4) << root << std::endl;
+        file << std::setw(SerializerConstants::JSON_INDENT_SPACES) << root << std::endl;
         return true;
     }
 
-    // ------------------------------------------------------------------------
-    // JSON ファイルを読み込んで SceneData 構造体へ展開します
-    // [引数] filePath: 読み込み元パス, outSceneData: 解析結果を受け取る参照
-    // [戻り値] 読み込み成功時 true, 失敗時 false
-    // ------------------------------------------------------------------------
+    // 指定されたJSONファイルを解析してSceneData構造体へ展開する関数
+    // 引数 filePath: 読み込み元のファイルパス, outSceneData: 解析結果を格納する参照
+    // 戻り値: 読み込み成功時 true, 失敗時 false
     static bool LoadFromJson(const std::string& filePath, SceneData& outSceneData)
     {
         std::ifstream file(filePath);
@@ -91,7 +90,7 @@ public:
 
         outSceneData.objects.clear();
 
-        // "objects" 配列を展開して ObjectTransform に格納
+        // "objects" 配列を展開して各属性をObjectTransformに復元
         if (root.contains("objects") && root["objects"].is_array())
         {
             for (const auto& objJson : root["objects"])
@@ -100,37 +99,38 @@ public:
                 obj.modelName = objJson.value("modelName", "");
                 obj.tag = objJson.value("tag", "Default");
 
-                // トランスフォーム属性の安全な取得 (存在・要素数チェック付き)
-                if (objJson.contains("position") && objJson["position"].is_array() && objJson["position"].size() >= 3)
+                // 各トランスフォーム属性の配列・要素数判定付き安全取得
+                if (objJson.contains("position") && objJson["position"].is_array() &&
+                    objJson["position"].size() >= SerializerConstants::VECTOR3_ELEMENT_COUNT)
                 {
                     obj.position = {objJson["position"][0], objJson["position"][1], objJson["position"][2]};
                 }
-                if (objJson.contains("rotation") && objJson["rotation"].is_array() && objJson["rotation"].size() >= 3)
+                if (objJson.contains("rotation") && objJson["rotation"].is_array() &&
+                    objJson["rotation"].size() >= SerializerConstants::VECTOR3_ELEMENT_COUNT)
                 {
                     obj.rotation = {objJson["rotation"][0], objJson["rotation"][1], objJson["rotation"][2]};
                 }
-                if (objJson.contains("scale") && objJson["scale"].is_array() && objJson["scale"].size() >= 3)
+                if (objJson.contains("scale") && objJson["scale"].is_array() &&
+                    objJson["scale"].size() >= SerializerConstants::VECTOR3_ELEMENT_COUNT)
                 {
                     obj.scale = {objJson["scale"][0], objJson["scale"][1], objJson["scale"][2]};
                 }
-
-                // 衝突判定スケールの取得
                 if (objJson.contains("collisionScale") && objJson["collisionScale"].is_array() &&
-                    objJson["collisionScale"].size() >= 3)
+                    objJson["collisionScale"].size() >= SerializerConstants::VECTOR3_ELEMENT_COUNT)
                 {
                     obj.collisionScale = {objJson["collisionScale"][0], objJson["collisionScale"][1],
                                           objJson["collisionScale"][2]};
                 }
 
-                // 物理演算（RigidBody）パラメータの取得
+                // 物理演算パラメータの復元
                 if (objJson.contains("rigidBody") && objJson["rigidBody"].is_object())
                 {
                     const auto& rbJson = objJson["rigidBody"];
                     obj.rigidBody.enabled = rbJson.value("enabled", false);
                     obj.rigidBody.useGravity = rbJson.value("useGravity", true);
                     obj.rigidBody.isStatic = rbJson.value("isStatic", false);
-                    obj.rigidBody.mass = rbJson.value("mass", 1.0f);
-                    obj.rigidBody.damping = rbJson.value("damping", 0.98f);
+                    obj.rigidBody.mass = rbJson.value("mass", PhysicsConstants::DEFAULT_MASS);
+                    obj.rigidBody.damping = rbJson.value("damping", PhysicsConstants::DEFAULT_DAMPING);
                 }
 
                 outSceneData.objects.push_back(obj);

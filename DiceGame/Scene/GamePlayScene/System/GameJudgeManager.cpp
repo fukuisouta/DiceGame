@@ -5,7 +5,22 @@
 using namespace DirectX;
 using namespace DirectX::SimpleMath;
 
-// 初期化処理
+// 勝敗ダイアログ表示スタイル定数定義
+namespace JudgeStyleConstants
+{
+    constexpr float DIALOG_WIDTH = 400.0f;     // ダイアログ幅
+    constexpr float DIALOG_HEIGHT = 260.0f;    // ダイアログ高さ
+    constexpr float BUTTON_WIDTH = 220.0f;     // ボタン幅
+    constexpr float BUTTON_HEIGHT = 45.0f;     // ボタン高さ
+    constexpr float BUTTON_Y1_OFFSET = 110.0f; // 1つ目のボタンYオフセット
+    constexpr float BUTTON_Y2_OFFSET = 175.0f; // 2つ目のボタンYオフセット
+
+    constexpr float TEXT_TITLE_Y = 30.0f;         // タイトルテキストY位置
+    constexpr float BUTTON_TEXT_X_OFFSET = 75.0f; // ボタン内テキストXオフセット
+    constexpr float BUTTON_TEXT_Y_OFFSET = 12.0f; // ボタン内テキストYオフセット
+}
+
+// 初期化
 void GameJudgeManager::Initialize(ID3D11Device* device, ID3D11DeviceContext* context)
 {
     m_colorPrimitiveBatch = std::make_unique<PrimitiveBatch<VertexPositionColor>>(context);
@@ -14,7 +29,7 @@ void GameJudgeManager::Initialize(ID3D11Device* device, ID3D11DeviceContext* con
     m_colorEffect->SetVertexColorEnabled(true);
 
     m_resultState = ResultState::None;
-    m_selectIndex = 0;
+    m_selectIndex = JudgeConstants::INDEX_RETRY;
 }
 
 // 勝敗判定評価
@@ -40,7 +55,7 @@ void GameJudgeManager::JudgeGame(const DiceBattleGame& gameLogic, PlayerType myP
     }
 }
 
-// 勝敗ダイアログ上のボタン選択・決定操作更新
+// 更新処理
 GameJudgeManager::Action GameJudgeManager::Update(const Mouse::State& mouseState,
                                                   const Mouse::ButtonStateTracker& mouseTracker,
                                                   const Keyboard::KeyboardStateTracker& kbTracker)
@@ -54,14 +69,14 @@ GameJudgeManager::Action GameJudgeManager::Update(const Mouse::State& mouseState
                         mouseState.y >= m_titleButtonRect.top && mouseState.y <= m_titleButtonRect.bottom);
 
     if (m_isRetryHovered)
-        m_selectIndex = 0;
+        m_selectIndex = JudgeConstants::INDEX_RETRY;
     if (m_isTitleHovered)
-        m_selectIndex = 1;
+        m_selectIndex = JudgeConstants::INDEX_TITLE;
 
     if (kbTracker.IsKeyPressed(Keyboard::Keys::Up) || kbTracker.IsKeyPressed(Keyboard::Keys::W))
-        m_selectIndex = 0;
+        m_selectIndex = JudgeConstants::INDEX_RETRY;
     if (kbTracker.IsKeyPressed(Keyboard::Keys::Down) || kbTracker.IsKeyPressed(Keyboard::Keys::S))
-        m_selectIndex = 1;
+        m_selectIndex = JudgeConstants::INDEX_TITLE;
 
     bool isClicked =
         (mouseTracker.leftButton == Mouse::ButtonStateTracker::PRESSED) && (m_isRetryHovered || m_isTitleHovered);
@@ -70,13 +85,13 @@ GameJudgeManager::Action GameJudgeManager::Update(const Mouse::State& mouseState
 
     if (isClicked || isEnterPressed)
     {
-        return (m_selectIndex == 0) ? Action::Retry : Action::GoToTitle;
+        return (m_selectIndex == JudgeConstants::INDEX_RETRY) ? Action::Retry : Action::GoToTitle;
     }
 
     return Action::None;
 }
 
-// 勝敗オーバーレイ・ダイアログ・選択ボタン・テキストの描画
+// 描画処理
 void GameJudgeManager::Render(ID3D11DeviceContext* context, const CommonStates& states,
                               Imase::DebugRenderer& debugRenderer, float screenWidth, float screenHeight)
 {
@@ -107,7 +122,6 @@ void GameJudgeManager::Render(ID3D11DeviceContext* context, const CommonStates& 
     m_colorEffect->Apply(context);
     m_colorPrimitiveBatch->Begin();
 
-    // 画面全体の半透明暗転背景描画
     VertexPositionColor bg0(Vector3(0.0f, 0.0f, 0.0f), Vector4(0.0f, 0.0f, 0.0f, 0.75f));
     VertexPositionColor bg1(Vector3(screenWidth, 0.0f, 0.0f), Vector4(0.0f, 0.0f, 0.0f, 0.75f));
     VertexPositionColor bg2(Vector3(0.0f, screenHeight, 0.0f), Vector4(0.0f, 0.0f, 0.0f, 0.75f));
@@ -115,8 +129,8 @@ void GameJudgeManager::Render(ID3D11DeviceContext* context, const CommonStates& 
     m_colorPrimitiveBatch->DrawTriangle(bg0, bg1, bg2);
     m_colorPrimitiveBatch->DrawTriangle(bg2, bg1, bg3);
 
-    // ポップアップウィンドウ本体の描画
-    float dialogW = 400.0f, dialogH = 260.0f;
+    float dialogW = JudgeStyleConstants::DIALOG_WIDTH;
+    float dialogH = JudgeStyleConstants::DIALOG_HEIGHT;
     float dialogX = (screenWidth - dialogW) * 0.5f;
     float dialogY = (screenHeight - dialogH) * 0.5f;
 
@@ -127,18 +141,21 @@ void GameJudgeManager::Render(ID3D11DeviceContext* context, const CommonStates& 
     m_colorPrimitiveBatch->DrawTriangle(dlg0, dlg1, dlg2);
     m_colorPrimitiveBatch->DrawTriangle(dlg2, dlg1, dlg3);
 
-    // リトライ / タイトル選択ボタンの描画
-    float btnW = 220.0f, btnH = 45.0f;
+    float btnW = JudgeStyleConstants::BUTTON_WIDTH;
+    float btnH = JudgeStyleConstants::BUTTON_HEIGHT;
     float btnX = dialogX + (dialogW - btnW) * 0.5f;
-    float btnY1 = dialogY + 110.0f, btnY2 = dialogY + 175.0f;
+    float btnY1 = dialogY + JudgeStyleConstants::BUTTON_Y1_OFFSET;
+    float btnY2 = dialogY + JudgeStyleConstants::BUTTON_Y2_OFFSET;
 
     m_retryButtonRect = {static_cast<LONG>(btnX), static_cast<LONG>(btnY1), static_cast<LONG>(btnX + btnW),
                          static_cast<LONG>(btnY1 + btnH)};
     m_titleButtonRect = {static_cast<LONG>(btnX), static_cast<LONG>(btnY2), static_cast<LONG>(btnX + btnW),
                          static_cast<LONG>(btnY2 + btnH)};
 
-    Vector4 col1 = (m_selectIndex == 0) ? Vector4(0.9f, 0.7f, 0.1f, 0.9f) : Vector4(0.3f, 0.35f, 0.45f, 0.8f);
-    Vector4 col2 = (m_selectIndex == 1) ? Vector4(0.9f, 0.7f, 0.1f, 0.9f) : Vector4(0.3f, 0.35f, 0.45f, 0.8f);
+    Vector4 col1 = (m_selectIndex == JudgeConstants::INDEX_RETRY) ? Vector4(0.9f, 0.7f, 0.1f, 0.9f)
+                                                                  : Vector4(0.3f, 0.35f, 0.45f, 0.8f);
+    Vector4 col2 = (m_selectIndex == JudgeConstants::INDEX_TITLE) ? Vector4(0.9f, 0.7f, 0.1f, 0.9f)
+                                                                  : Vector4(0.3f, 0.35f, 0.45f, 0.8f);
 
     auto DrawBox = [&](float x, float y, float w, float h, Vector4 col)
     {
@@ -154,7 +171,6 @@ void GameJudgeManager::Render(ID3D11DeviceContext* context, const CommonStates& 
     DrawBox(btnX, btnY2, btnW, btnH, col2);
     m_colorPrimitiveBatch->End();
 
-    // 勝敗テキストの設定
     const wchar_t* resultStr = L"";
     float textOffsetX = 130.0f;
 
@@ -176,8 +192,12 @@ void GameJudgeManager::Render(ID3D11DeviceContext* context, const CommonStates& 
             break;
     }
 
-    // SpriteFontの表示例外を防止するためASCII文字で表示[cite: 43]
-    debugRenderer.DrawText({dialogX + textOffsetX, dialogY + 30.0f}, Colors::White, resultStr);
-    debugRenderer.DrawText({btnX + 75.0f, btnY1 + 12.0f}, Colors::White, L"RETRY");
-    debugRenderer.DrawText({btnX + 75.0f, btnY2 + 12.0f}, Colors::White, L"TITLE");
+    debugRenderer.DrawText({dialogX + textOffsetX, dialogY + JudgeStyleConstants::TEXT_TITLE_Y}, Colors::White,
+                           resultStr);
+    debugRenderer.DrawText(
+        {btnX + JudgeStyleConstants::BUTTON_TEXT_X_OFFSET, btnY1 + JudgeStyleConstants::BUTTON_TEXT_Y_OFFSET},
+        Colors::White, L"RETRY");
+    debugRenderer.DrawText(
+        {btnX + JudgeStyleConstants::BUTTON_TEXT_X_OFFSET, btnY2 + JudgeStyleConstants::BUTTON_TEXT_Y_OFFSET},
+        Colors::White, L"TITLE");
 }

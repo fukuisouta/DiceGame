@@ -5,41 +5,56 @@
 #include <Keyboard.h>
 #include <algorithm>
 
-// ============================================================================
-// ゲームプレイ中のカメラ制御マネージャー
-// 通常斜め視点と真上俯瞰視点の補間切り替え、1P/2Pごとの反転視点を管理します
-// ============================================================================
+// カメラマネージャー用定数定義
+namespace CameraManagerConstants
+{
+    // マクロ衝突を避けるため CAM_ などの接頭辞を付与
+    constexpr float CAM_DEFAULT_PITCH = 48.0f;    // 標準アングルの見下ろし仰角（度）
+    constexpr float CAM_DEFAULT_DISTANCE = 30.0f; // 標準アングルの注視点からの距離
+    constexpr float TOP_DOWN_PITCH = 85.0f;       // 真上俯瞰視点の見下ろし仰角（度）
+    constexpr float TOP_DOWN_DISTANCE = 25.0f;    // 真上俯瞰視点の注視点からの距離
+
+    constexpr float MIN_DISTANCE = 10.0f;
+    constexpr float MAX_DISTANCE = 60.0f;
+    constexpr float MIN_PITCH = 15.0f;
+    constexpr float MAX_PITCH = 88.0f;
+
+    constexpr float DEBUG_MOVE_SPEED_DISTANCE = 20.0f;
+    constexpr float DEBUG_MOVE_SPEED_PITCH = 25.0f;
+    constexpr float INTERPOLATION_SPEED = 10.0f;
+
+    constexpr float DEFAULT_EYE_Y = 22.0f;
+    constexpr float DEFAULT_EYE_Z = -20.0f;
+}
+
 class CameraManager
 {
 public:
     CameraManager() = default;
     ~CameraManager() = default;
 
-    // 初期化（基本パラメータおよびターゲット座標の設定）
-    void Initialize(float defaultPitch = 48.0f, float defaultDistance = 30.0f,
+    void Initialize(float defaultPitch = CameraManagerConstants::CAM_DEFAULT_PITCH,
+                    float defaultDistance = CameraManagerConstants::CAM_DEFAULT_DISTANCE,
                     const DirectX::SimpleMath::Vector3& target = DirectX::SimpleMath::Vector3(0.0f, 0.0f, 0.0f));
 
-    // 毎フレームのカメラ位置移動・視点補間および操作更新
     void Update(float dt, const DirectX::Keyboard::State& kbState,
                 const class DirectX::Keyboard::KeyboardStateTracker& kbTracker, bool isClient);
 
-    // ★ 視点切り替え処理（通常斜め視点 ⇔ 真上俯瞰視点）
     void ToggleView()
     {
         m_isTopDownView = !m_isTopDownView;
         if (m_isTopDownView)
         {
-            m_targetPitch = 85.0f;    // ほぼ真上の角度
-            m_targetDistance = 25.0f; // 盤面全体が収まる距離
+            m_targetPitch = CameraManagerConstants::TOP_DOWN_PITCH;
+            m_targetDistance = CameraManagerConstants::TOP_DOWN_DISTANCE;
         }
         else
         {
-            m_targetPitch = 48.0f; // 通常の斜めアングル
-            m_targetDistance = 30.0f;
+            m_targetPitch = CameraManagerConstants::CAM_DEFAULT_PITCH;
+            m_targetDistance = CameraManagerConstants::CAM_DEFAULT_DISTANCE;
         }
     }
 
-    // --- ゲッター・セッター ---
     DirectX::SimpleMath::Vector3 GetEye() const
     {
         return m_cameraEye;
@@ -62,11 +77,13 @@ public:
         m_cameraPitch = pitch;
         m_targetPitch = pitch;
     }
+
     void SetDistance(float dist)
     {
         m_cameraDistance = dist;
         m_targetDistance = dist;
     }
+
     void SetTarget(const DirectX::SimpleMath::Vector3& target)
     {
         m_cameraTarget = target;
@@ -78,14 +95,14 @@ public:
     }
 
 private:
-    DirectX::SimpleMath::Vector3 m_cameraTarget{0.0f, 0.0f, 0.0f}; // カメラ注視点
-    DirectX::SimpleMath::Vector3 m_cameraEye{0.0f, 22.0f, -20.0f}; // カメラ視点位置
+    DirectX::SimpleMath::Vector3 m_cameraTarget{0.0f, 0.0f, 0.0f};
+    DirectX::SimpleMath::Vector3 m_cameraEye{0.0f, CameraManagerConstants::DEFAULT_EYE_Y,
+                                             CameraManagerConstants::DEFAULT_EYE_Z};
 
-    float m_cameraPitch = 48.0f;    // 現在の仰角
-    float m_cameraDistance = 30.0f; // 現在の距離
+    float m_cameraPitch = CameraManagerConstants::CAM_DEFAULT_PITCH;
+    float m_cameraDistance = CameraManagerConstants::CAM_DEFAULT_DISTANCE;
 
-    // 視点切り替え機能（Cキー / UIボタン用）
-    bool m_isTopDownView = false;   // 真上俯瞰表示フラグ
-    float m_targetPitch = 48.0f;    // 補間目標仰角
-    float m_targetDistance = 30.0f; // 補間目標距離
+    bool m_isTopDownView = false;
+    float m_targetPitch = CameraManagerConstants::CAM_DEFAULT_PITCH;
+    float m_targetDistance = CameraManagerConstants::CAM_DEFAULT_DISTANCE;
 };

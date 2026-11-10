@@ -8,13 +8,23 @@
 using namespace DirectX;
 using namespace DirectX::SimpleMath;
 
+// タイトルシーンスタイル定数定義
+namespace TitleStyleConstants
+{
+    constexpr float CAMERA_Z_POS = -10.0f;                                     // カメラのZ位置座標
+    constexpr int CLICK_PARTICLE_COUNT = 20;                                   // クリック発生粒子数
+    constexpr int AABB_CORNER_COUNT = 8;                                       // AABBの頂点数
+    constexpr Vector4 HOVER_COLOR_HIGHLIGHT = Vector4(1.3f, 1.3f, 1.3f, 1.0f); // ホバー強調時カラー
+    constexpr Vector4 NORMAL_COLOR = Vector4(1.0f, 1.0f, 1.0f, 1.0f);          // 通常時カラー
+}
+
 namespace
 {
-    // 3Dオブジェクトの有向境界ボックス（AABB）を投影しスクリーンの2D領域（RECT）に変換するヘルパー関数
+    // 3Dオブジェクトの有向境界ボックス（AABB）を投影しスクリーンの2D領域（RECT）に変換する内部ヘルパー関数
     RECT ProjectAABBToScreen(const Vector3& minBounds, const Vector3& maxBounds, const Matrix& view, const Matrix& proj,
                              float screenWidth, float screenHeight)
     {
-        Vector3 corners[8] = {
+        Vector3 corners[TitleStyleConstants::AABB_CORNER_COUNT] = {
             Vector3(minBounds.x, minBounds.y, minBounds.z), Vector3(maxBounds.x, minBounds.y, minBounds.z),
             Vector3(minBounds.x, maxBounds.y, minBounds.z), Vector3(maxBounds.x, maxBounds.y, minBounds.z),
             Vector3(minBounds.x, minBounds.y, maxBounds.z), Vector3(maxBounds.x, maxBounds.y, maxBounds.z),
@@ -26,7 +36,7 @@ namespace
 
         Matrix viewProj = view * proj;
 
-        for (int i = 0; i < 8; ++i)
+        for (int i = 0; i < TitleStyleConstants::AABB_CORNER_COUNT; ++i)
         {
             Vector4 clip = Vector4::Transform(Vector4(corners[i].x, corners[i].y, corners[i].z, 1.0f), viewProj);
             if (clip.w != 0.0f)
@@ -73,11 +83,9 @@ void TitleScene::OnEnter(GameContext& gameContext)
                               VertexPositionNormalTexture::InputElementCount, shaderByteCode, byteCodeLength,
                               m_inputLayout.ReleaseAndGetAddressOf());
 
-    // ★ パーティクルマネージャーの初期化とクリア
     m_particleManager.Initialize(device, context);
     m_particleManager.Clear();
 
-    // JSON配置データのロード
     SceneData loadedData;
     m_placedObjects.clear();
 
@@ -108,7 +116,7 @@ void TitleScene::OnEnter(GameContext& gameContext)
     }
 }
 
-// 2D画像表示用の単位クワッドポリゴンを描画
+// 2D画像表示用の単位クワッドポリゴン描画処理
 void TitleScene::DrawQuadWithPrimitiveBatch(ID3D11DeviceContext* context, const Matrix& world)
 {
     (void)context;
@@ -160,10 +168,8 @@ void TitleScene::Update(Imase::ISceneController<SceneId>& sceneController, GameC
     float dt = static_cast<float>(gameContext.timer.GetElapsedSeconds());
     SoundManager::GetInstance().Update();
 
-    // ★ パーティクルの物理・寿命更新
     m_particleManager.Update(dt);
 
-    // Tab + E キーでエディターシーンへ移動
     auto kbState = DirectX::Keyboard::Get().GetState();
     if (kbState.IsKeyDown(DirectX::Keyboard::Keys::Tab) && kbState.IsKeyDown(DirectX::Keyboard::Keys::E))
     {
@@ -176,12 +182,13 @@ void TitleScene::Update(Imase::ISceneController<SceneId>& sceneController, GameC
     float screenHeight = static_cast<float>(outputSize.bottom - outputSize.top);
     float aspectRatio = screenWidth / screenHeight;
 
-    Matrix view = Matrix::CreateLookAt(Vector3(0.0f, 0.0f, -10.0f), Vector3::Zero, Vector3::Up);
-    float orthoHeight = 10.0f;
+    Matrix view =
+        Matrix::CreateLookAt(Vector3(0.0f, 0.0f, TitleStyleConstants::CAMERA_Z_POS), Vector3::Zero, Vector3::Up);
+    float orthoHeight = TitleConstants::ORTHO_HEIGHT;
     float orthoWidth = orthoHeight * aspectRatio;
-    Matrix projection = Matrix::CreateOrthographic(orthoWidth, orthoHeight, 0.1f, 1000.0f);
+    Matrix projection = Matrix::CreateOrthographic(orthoWidth, orthoHeight, TitleConstants::CAMERA_NEAR_Z,
+                                                   TitleConstants::CAMERA_FAR_Z);
 
-    // 配置オブジェクトタグからUIボタン領域を画面上に投影
     for (const auto& obj : m_placedObjects)
     {
         std::string nameLower = obj.cmoFileName;
@@ -212,7 +219,6 @@ void TitleScene::Update(Imase::ISceneController<SceneId>& sceneController, GameC
     static DirectX::Mouse::ButtonStateTracker mouseTracker;
     mouseTracker.Update(mouseState);
 
-    // マウスホバー判定
     m_isSoloHovered = (mouseState.x >= m_soloBtnRect.left && mouseState.x <= m_soloBtnRect.right &&
                        mouseState.y >= m_soloBtnRect.top && mouseState.y <= m_soloBtnRect.bottom);
 
@@ -222,24 +228,20 @@ void TitleScene::Update(Imase::ISceneController<SceneId>& sceneController, GameC
     m_isExitHovered = (mouseState.x >= m_exitBtnRect.left && mouseState.x <= m_exitBtnRect.right &&
                        mouseState.y >= m_exitBtnRect.top && mouseState.y <= m_exitBtnRect.bottom);
 
-    // クリック時の各種画面遷移処理およびパーティクル発生
     if (mouseTracker.leftButton == DirectX::Mouse::ButtonStateTracker::PRESSED)
     {
-        // ★ 画面クリック座標にパーティクルを発生
-        m_particleManager.SpawnClickParticles(static_cast<float>(mouseState.x), static_cast<float>(mouseState.y), 20);
+        m_particleManager.SpawnClickParticles(static_cast<float>(mouseState.x), static_cast<float>(mouseState.y),
+                                              TitleStyleConstants::CLICK_PARTICLE_COUNT);
 
-        // 1. ソロボタン -> 選択画面（SelectScene）へ直行
         if (m_isSoloHovered)
         {
             gameContext.networkManager.Shutdown();
             sceneController.RequestSwitch(SceneId::SelectScene);
         }
-        // 2. マルチボタン -> ロビー画面（LobbyScene）へ遷移
         else if (m_isMultiHovered)
         {
             sceneController.RequestSwitch(SceneId::LobbyScene);
         }
-        // 3. EXITボタン -> ゲーム終了
         else if (m_isExitHovered)
         {
             PostQuitMessage(0);
@@ -258,11 +260,11 @@ void TitleScene::Render(GameContext& gameContext)
     float screenHeight = static_cast<float>(outputSize.bottom - outputSize.top);
     float aspectRatio = screenWidth / screenHeight;
 
-    // レイヤー 1: 3D背景の描画
-    Vector3 cameraPos = Vector3(0.0f, 0.0f, -10.0f);
+    Vector3 cameraPos = Vector3(0.0f, 0.0f, TitleStyleConstants::CAMERA_Z_POS);
     Matrix perspectiveView = Matrix::CreateLookAt(cameraPos, Vector3::Zero, Vector3::Up);
     Matrix perspectiveProj =
-        Matrix::CreatePerspectiveFieldOfView(XMConvertToRadians(45.0f), aspectRatio, 0.1f, 1000.0f);
+        Matrix::CreatePerspectiveFieldOfView(XMConvertToRadians(TitleConstants::DEFAULT_FOV_DEGREE), aspectRatio,
+                                             TitleConstants::CAMERA_NEAR_Z, TitleConstants::CAMERA_FAR_Z);
 
     context->OMSetBlendState(gameContext.commonStates.Opaque(), nullptr, 0xFFFFFFFF);
     context->OMSetDepthStencilState(gameContext.commonStates.DepthDefault(), 0);
@@ -313,13 +315,14 @@ void TitleScene::Render(GameContext& gameContext)
         obj.model->Draw(context, gameContext.commonStates, localWorld, perspectiveView, perspectiveProj);
     }
 
-    // レイヤー 2: 2D UI要素（正射影）の描画
     context->ClearDepthStencilView(gameContext.deviceResources.GetDepthStencilView(), D3D11_CLEAR_DEPTH, 1.0f, 0);
 
-    Matrix orthoView = Matrix::CreateLookAt(Vector3(0.0f, 0.0f, -10.0f), Vector3::Zero, Vector3::Up);
-    float orthoHeight = 10.0f;
+    Matrix orthoView =
+        Matrix::CreateLookAt(Vector3(0.0f, 0.0f, TitleStyleConstants::CAMERA_Z_POS), Vector3::Zero, Vector3::Up);
+    float orthoHeight = TitleConstants::ORTHO_HEIGHT;
     float orthoWidth = orthoHeight * aspectRatio;
-    Matrix orthoProj = Matrix::CreateOrthographic(orthoWidth, orthoHeight, 0.1f, 1000.0f);
+    Matrix orthoProj = Matrix::CreateOrthographic(orthoWidth, orthoHeight, TitleConstants::CAMERA_NEAR_Z,
+                                                  TitleConstants::CAMERA_FAR_Z);
 
     context->OMSetBlendState(gameContext.commonStates.AlphaBlend(), nullptr, 0xFFFFFFFF);
     context->RSSetState(gameContext.commonStates.CullNone());
@@ -355,14 +358,13 @@ void TitleScene::Render(GameContext& gameContext)
                 (tagLower.find("multi") != std::string::npos || nameLower.find("multi") != std::string::npos);
             bool isExit = (tagLower.find("exit") != std::string::npos || nameLower.find("exit") != std::string::npos);
 
-            // ホバー時の輝度強調
             if ((isSolo && m_isSoloHovered) || (isMulti && m_isMultiHovered) || (isExit && m_isExitHovered))
             {
-                m_effect->SetDiffuseColor(Vector4(1.3f, 1.3f, 1.3f, 1.0f));
+                m_effect->SetDiffuseColor(TitleStyleConstants::HOVER_COLOR_HIGHLIGHT);
             }
             else
             {
-                m_effect->SetDiffuseColor(Vector4(1.0f, 1.0f, 1.0f, 1.0f));
+                m_effect->SetDiffuseColor(TitleStyleConstants::NORMAL_COLOR);
             }
 
             m_effect->Apply(context);
@@ -372,10 +374,8 @@ void TitleScene::Render(GameContext& gameContext)
         }
     }
 
-    // ★ レイヤー 3: 2Dパーティクルの描画（2D UIの前面に表示）
     m_particleManager.Render(context, screenWidth, screenHeight, gameContext.commonStates);
 
-    // ステート復元
     context->OMSetBlendState(gameContext.commonStates.Opaque(), nullptr, 0xFFFFFFFF);
     context->OMSetDepthStencilState(gameContext.commonStates.DepthDefault(), 0);
     context->RSSetState(gameContext.commonStates.CullCounterClockwise());

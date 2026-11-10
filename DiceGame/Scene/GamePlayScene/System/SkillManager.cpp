@@ -8,19 +8,25 @@
 using namespace DirectX;
 using namespace DirectX::SimpleMath;
 
+// スキル処理パラメータ用定数定義
+namespace SkillStyleConstants
+{
+    constexpr float AI_SKILL_THINK_INTERVAL = 0.6f; // AIがスキル思考を行う更新インターバル（秒）
+    constexpr float NOTICE_DURATION_SKILL = 1.5f;   // スキル発動通知テロップの表示時間（秒）
+    constexpr int AI_REROLL_STEP_THRESHOLD = 2;     // AIが振り直しを使用する残り歩数の閾値
+    constexpr int DOUBLE_ROLL_MULTIPLIER = 2;       // 倍化スキル適用時の移動数倍率
+    constexpr int AI_REVIVE_SEARCH_MAX_Y = 1;       // AIが蘇生コマを配置する自陣の最大Y座標
+}
+
 // スキルカードテクスチャの読み込みと初期化
 void SkillManager::Initialize(ID3D11Device* device)
 {
-    /*CreateWICTextureFromFile(device, L"Resources/Textures/破壊.png", nullptr,
-                             m_cardTextures[SkillType::Destroy].ReleaseAndGetAddressOf());*/
     CreateWICTextureFromFile(device, L"Resources/Textures/再振.png", nullptr,
                              m_cardTextures[SkillType::ReRoll].ReleaseAndGetAddressOf());
     CreateWICTextureFromFile(device, L"Resources/Textures/守護.png", nullptr,
                              m_cardTextures[SkillType::Shield].ReleaseAndGetAddressOf());
     CreateWICTextureFromFile(device, L"Resources/Textures/蘇生.png", nullptr,
                              m_cardTextures[SkillType::Revive].ReleaseAndGetAddressOf());
-    /* CreateWICTextureFromFile(device, L"Resources/Textures/地震.png", nullptr,
-                              m_cardTextures[SkillType::Earthquake].ReleaseAndGetAddressOf());*/
     CreateWICTextureFromFile(device, L"Resources/Textures/凍結.png", nullptr,
                              m_cardTextures[SkillType::Freeze].ReleaseAndGetAddressOf());
     CreateWICTextureFromFile(device, L"Resources/Textures/倍化.png", nullptr,
@@ -38,7 +44,7 @@ void SkillManager::InitializeHandCards()
                                           {0, 0, 0, 0},
                                           false,
                                           false,
-                                          Vector4(1, 1, 1, 1),
+                                          Vector4(1.0f, 1.0f, 1.0f, 1.0f),
                                           m_cardTextures[SkillType::ReRoll]},
                                          {SkillType::Shield,
                                           L"シールド",
@@ -46,7 +52,7 @@ void SkillManager::InitializeHandCards()
                                           {0, 0, 0, 0},
                                           false,
                                           false,
-                                          Vector4(1, 1, 1, 1),
+                                          Vector4(1.0f, 1.0f, 1.0f, 1.0f),
                                           m_cardTextures[SkillType::Shield]},
                                          {SkillType::Revive,
                                           L"復活",
@@ -54,7 +60,7 @@ void SkillManager::InitializeHandCards()
                                           {0, 0, 0, 0},
                                           false,
                                           false,
-                                          Vector4(1, 1, 1, 1),
+                                          Vector4(1.0f, 1.0f, 1.0f, 1.0f),
                                           m_cardTextures[SkillType::Revive]},
                                          {SkillType::Freeze,
                                           L"フリース",
@@ -62,7 +68,7 @@ void SkillManager::InitializeHandCards()
                                           {0, 0, 0, 0},
                                           false,
                                           false,
-                                          Vector4(1, 1, 1, 1),
+                                          Vector4(1.0f, 1.0f, 1.0f, 1.0f),
                                           m_cardTextures[SkillType::Freeze]},
                                          {SkillType::DoubleRoll,
                                           L"倍化",
@@ -70,40 +76,27 @@ void SkillManager::InitializeHandCards()
                                           {0, 0, 0, 0},
                                           false,
                                           false,
-                                          Vector4(1, 1, 1, 1),
-                                          m_cardTextures[SkillType::DoubleRoll]},
-                                       /*  {SkillType::Destroy,
-                                          L"Destroy",
-                                          L"相手の駒を1つ選んで破壊する",
-                                          {0, 0, 0, 0},
-                                          false,
-                                          false,
-                                          Vector4(1, 1, 1, 1),
-                                          m_cardTextures[SkillType::Destroy]},*/
-                                        /* {SkillType::Earthquake,
-                                          L"Earthquake",
-                                          L"盤上のすべての駒の出目をランダムに変化させる",
-                                          {0, 0, 0, 0},
-                                          false,
-                                          false,
-                                          Vector4(1, 1, 1, 1),
-                                          m_cardTextures[SkillType::Earthquake]}*/};
+                                          Vector4(1.0f, 1.0f, 1.0f, 1.0f),
+                                          m_cardTextures[SkillType::DoubleRoll]}};
 
     static std::mt19937 rng(std::random_device{}());
 
-    // プレイヤー（1P）へ3枚シャッフル配布
+    // プレイヤー（1P）へシャッフル配布
     std::shuffle(masterList.begin(), masterList.end(), rng);
-    for (size_t i = 0; i < 3; ++i)
+    for (size_t i = 0; i < SkillManagerConstants::HAND_CARD_COUNT; ++i)
+    {
         m_handCards[i] = masterList[i];
+    }
 
-    // CPU（2P）へ3枚シャッフル配布
+    // CPU（2P）へシャッフル配布
     std::shuffle(masterList.begin(), masterList.end(), rng);
-    for (size_t i = 0; i < 3; ++i)
+    for (size_t i = 0; i < SkillManagerConstants::HAND_CARD_COUNT; ++i)
+    {
         m_aiHandCards[i] = masterList[i];
+    }
 
     m_isFreezeNextTurn = false;
     m_isReviveSelecting = false;
-    // m_isDestroySelecting = false;
     m_isDoubleRollActive = false;
     m_aiSkillTimer = 0.0f;
 }
@@ -115,11 +108,6 @@ void SkillManager::ProcessPlayerSkillClick(SkillCard& card, GamePlaySceneBase* s
     (void)hasMovedThisTurn;
     switch (card.type)
     {
-            /* case SkillType::Destroy:
-                 m_isDestroySelecting = !m_isDestroySelecting;
-                 m_isReviveSelecting = false;
-                 scene->AddLog(L"スキル「破壊」の発動対象を選択中");
-                 break;*/
         case SkillType::ReRoll:
             card.isUsed = true;
             m_isDoubleRollActive = false;
@@ -128,56 +116,36 @@ void SkillManager::ProcessPlayerSkillClick(SkillCard& card, GamePlaySceneBase* s
             gameLogic.StartTurn();
             scene->AddLog(L"スキル「再振」を使用！ダイスを振り直します");
             break;
+
         case SkillType::DoubleRoll:
             if (gameLogic.GetRemainingSteps() > 0)
             {
                 card.isUsed = true;
                 m_isDoubleRollActive = true;
-                gameLogic.SetRemainingSteps(gameLogic.GetRemainingSteps() * 2);
+                gameLogic.SetRemainingSteps(gameLogic.GetRemainingSteps() *
+                                            SkillStyleConstants::DOUBLE_ROLL_MULTIPLIER);
                 scene->AddLog(L"スキル「倍化」を使用！移動数が2倍になりました");
             }
             break;
-            /*   case SkillType::Earthquake:
-                   card.isUsed = true;
-                   ExecuteEarthquakeSkill(scene, gameLogic);
-                   scene->AddLog(L"スキル「地震」を使用！全駒の出目を変更しました");
-                   break;*/
+
         case SkillType::Freeze:
             card.isUsed = true;
             m_isFreezeNextTurn = true;
             scene->AddLog(L"スキル「凍結」を使用！相手の次ターンをスキップします");
             break;
+
         case SkillType::Shield:
             card.isUsed = true;
             gameLogic.SetPlayerShield(PlayerType::Player1, true);
             scene->AddLog(L"スキル「守護」を使用！このターン駒を守護します");
             break;
+
         case SkillType::Revive:
             m_isReviveSelecting = !m_isReviveSelecting;
-            // m_isDestroySelecting = false;
             scene->AddLog(L"スキル「蘇生」の発動位置を選択中");
             break;
     }
 }
-
-// void SkillManager::ExecuteDestroySkill(int targetX, int targetY, GamePlaySceneBase* scene, DiceBattleGame& gameLogic)
-//{
-//     const auto* targetPiece = gameLogic.GetPieceAt(targetX, targetY);
-//     if (targetPiece && targetPiece->owner == PlayerType::Player2)
-//     {
-//         gameLogic.RemovePieceAt(targetX, targetY);
-//         for (auto& card : m_handCards)
-//         {
-//             if (card.type == SkillType::Destroy)
-//             {
-//                 card.isUsed = true;
-//                 break;
-//             }
-//         }
-//         m_isDestroySelecting = false;
-//         scene->TriggerTurnNotice(L"相手の駒を破壊した！", 1.5f);
-//     }
-// }
 
 // 蘇生スキルの実行
 void SkillManager::ExecuteReviveSkill(int targetX, int targetY, GamePlaySceneBase* scene, DiceBattleGame& gameLogic)
@@ -197,25 +165,6 @@ void SkillManager::ExecuteReviveSkill(int targetX, int targetY, GamePlaySceneBas
     }
 }
 
-// void SkillManager::ExecuteEarthquakeSkill(GamePlaySceneBase* scene, DiceBattleGame& gameLogic)
-//{
-//     static std::mt19937 rng(std::random_device{}());
-//     std::uniform_real_distribution<float> dist(-XM_PI, XM_PI);
-//
-//     auto& pieces = const_cast<std::vector<BoardPiece>&>(gameLogic.GetPieces());
-//     for (auto& piece : pieces)
-//     {
-//         if (piece.isActive && piece.diceInstance && piece.type != PieceType::King)
-//         {
-//             Quaternion randomRot = Quaternion::CreateFromYawPitchRoll(dist(rng), dist(rng), dist(rng));
-//             piece.startRot = piece.diceInstance->GetRotation();
-//             piece.targetRot = randomRot;
-//             piece.rotProgress = 0.0f;
-//         }
-//     }
-//     scene->TriggerTurnNotice(L"地震発生！出目が変化した！", 1.8f);
-// }
-
 // CPU（2P）のスキル自動使用思考ロジック
 void SkillManager::ProcessAISkillLogic(float dt, GamePlaySceneBase* scene, DiceBattleGame& gameLogic,
                                        bool hasMovedThisTurn)
@@ -224,7 +173,7 @@ void SkillManager::ProcessAISkillLogic(float dt, GamePlaySceneBase* scene, DiceB
         return;
 
     m_aiSkillTimer += dt;
-    if (m_aiSkillTimer < 0.6f)
+    if (m_aiSkillTimer < SkillStyleConstants::AI_SKILL_THINK_INTERVAL)
         return;
 
     for (auto& card : m_aiHandCards)
@@ -234,56 +183,43 @@ void SkillManager::ProcessAISkillLogic(float dt, GamePlaySceneBase* scene, DiceB
 
         bool used = false;
         switch (card.type)
-        { /*
-             case SkillType::Destroy:
-             {
-                 for (const auto& piece : gameLogic.GetPieces())
-                 {
-                     if (piece.isActive && piece.owner == PlayerType::Player1)
-                     {
-                         gameLogic.RemovePieceAt(piece.gridX, piece.gridY);
-                         used = true;
-                         scene->TriggerTurnNotice(L"CPUがスキル「破壊」を使用！", 1.5f);
-                         scene->AddLog(L"CPUがスキル「破壊」を発動し、あなたの駒を破壊しました");
-                         break;
-                     }
-                 }
-                 break;
-             }*/
+        {
             case SkillType::ReRoll:
             {
-                // 歩数が少ない場合に振り直しスキルを使用
-                if (gameLogic.GetRemainingSteps() <= 2 && !hasMovedThisTurn)
+                if (gameLogic.GetRemainingSteps() <= SkillStyleConstants::AI_REROLL_STEP_THRESHOLD && !hasMovedThisTurn)
                 {
                     gameLogic.SetRemainingSteps(0);
                     gameLogic.StartTurn();
                     used = true;
-                    scene->TriggerTurnNotice(L"CPUがスキル「再振」を使用！", 1.5f);
+                    scene->TriggerTurnNotice(L"CPUがスキル「再振」を使用！",
+                                             SkillStyleConstants::NOTICE_DURATION_SKILL);
                     scene->AddLog(L"CPUがスキル「再振」を発動しました");
                 }
                 break;
             }
+
             case SkillType::Shield:
             {
                 gameLogic.SetPlayerShield(PlayerType::Player2, true);
                 used = true;
-                scene->TriggerTurnNotice(L"CPUがスキル「守護」を使用！", 1.5f);
+                scene->TriggerTurnNotice(L"CPUがスキル「守護」を使用！", SkillStyleConstants::NOTICE_DURATION_SKILL);
                 scene->AddLog(L"CPUがスキル「守護」を発動しました");
                 break;
             }
+
             case SkillType::Revive:
             {
-                // 撃破されたコマが存在すれば陣地の空きマスに復活
                 if (gameLogic.HasDeadPiece(PlayerType::Player2))
                 {
-                    for (int y = 0; y <= 1; ++y)
+                    for (int y = 0; y <= SkillStyleConstants::AI_REVIVE_SEARCH_MAX_Y; ++y)
                     {
                         for (int x = 0; x < DiceBattleGame::BOARD_WIDTH; ++x)
                         {
                             if (gameLogic.RevivePieceAt(PlayerType::Player2, x, y))
                             {
                                 used = true;
-                                scene->TriggerTurnNotice(L"CPUがスキル「蘇生」を使用！", 1.5f);
+                                scene->TriggerTurnNotice(L"CPUがスキル「蘇生」を使用！",
+                                                         SkillStyleConstants::NOTICE_DURATION_SKILL);
                                 scene->AddLog(L"CPUがスキル「蘇生」を発動し、駒を復帰させました");
                                 break;
                             }
@@ -294,34 +230,30 @@ void SkillManager::ProcessAISkillLogic(float dt, GamePlaySceneBase* scene, DiceB
                 }
                 break;
             }
+
             case SkillType::Freeze:
             {
                 m_isFreezeNextTurn = true;
                 used = true;
-                scene->TriggerTurnNotice(L"CPUがスキル「凍結」を使用！", 1.5f);
+                scene->TriggerTurnNotice(L"CPUがスキル「凍結」を使用！", SkillStyleConstants::NOTICE_DURATION_SKILL);
                 scene->AddLog(L"CPUがスキル「凍結」を発動しました");
                 break;
             }
+
             case SkillType::DoubleRoll:
             {
                 if (gameLogic.GetRemainingSteps() > 0)
                 {
                     m_isDoubleRollActive = true;
-                    gameLogic.SetRemainingSteps(gameLogic.GetRemainingSteps() * 2);
+                    gameLogic.SetRemainingSteps(gameLogic.GetRemainingSteps() *
+                                                SkillStyleConstants::DOUBLE_ROLL_MULTIPLIER);
                     used = true;
-                    scene->TriggerTurnNotice(L"CPUがスキル「倍化」を使用！", 1.5f);
+                    scene->TriggerTurnNotice(L"CPUがスキル「倍化」を使用！",
+                                             SkillStyleConstants::NOTICE_DURATION_SKILL);
                     scene->AddLog(L"CPUがスキル「倍化」を発動しました");
                 }
                 break;
             }
-                /* case SkillType::Earthquake:
-                 {
-                     ExecuteEarthquakeSkill(scene, gameLogic);
-                     used = true;
-                     scene->TriggerTurnNotice(L"CPUがスキル「地震」を使用！", 1.5f);
-                     scene->AddLog(L"CPUがスキル「地震」を発動しました");
-                     break;
-                 }*/
         }
 
         if (used)

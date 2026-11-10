@@ -3,18 +3,27 @@
 #include "GameLogManager.h"
 #include "GamePlayUIController.h"
 #include "GameContext.h"
+#include "GamePlaySceneBase.h"
 
 using namespace DirectX;
 using namespace DirectX::SimpleMath;
+
+// 移動制御スタイル定数定義
+namespace MovementStyleConstants
+{
+    constexpr float SHIELD_NOTICE_DURATION = 1.2f; // 守護発動時メッセージの表示時間（秒）
+    constexpr int DIRECTION_FORWARD = 1;           // 通常進行方向
+    constexpr int DIRECTION_BACKWARD = -1;         // 反転進行方向
+}
 
 // 選択状態のリセット
 void PieceMovementController::Reset()
 {
     m_hasMovedThisTurn = false;
-    m_selectedX = -1;
-    m_selectedY = -1;
-    m_cursorX = -1;
-    m_cursorY = -1;
+    m_selectedX = MovementConstants::UNSELECTED_INDEX;
+    m_selectedY = MovementConstants::UNSELECTED_INDEX;
+    m_cursorX = MovementConstants::UNSELECTED_INDEX;
+    m_cursorY = MovementConstants::UNSELECTED_INDEX;
 }
 
 // 移動可能タイルの取得
@@ -24,7 +33,7 @@ std::vector<MovableTileInfo> PieceMovementController::GetMovableTiles(const Dice
                                             gameLogic.IsWaitingForRoll(), gameLogic);
 }
 
-// 移動処理の実行（ログ登録・通信送信・守護スキル判定等を含む）
+// 移動処理の実行
 bool PieceMovementController::ExecuteMove(int fromX, int fromY, int toX, int toY, bool isNetworkReceived,
                                           DiceBattleGame& gameLogic, GameLogManager& logManager,
                                           GameContext* gameContext, std::wstring& outNoticeText, float& outNoticeTimer)
@@ -39,7 +48,6 @@ bool PieceMovementController::ExecuteMove(int fromX, int fromY, int toX, int toY
 
     bool isEnemyDefeated = (targetPiece != nullptr && targetPiece->owner != currentTurn);
 
-    // 敵コマへの攻撃時にシールド（守護スキル）が有効な場合のガード判定
     if (targetPiece && targetPiece->owner != currentTurn)
     {
         if (gameLogic.IsPlayerShielded(targetPiece->owner))
@@ -56,13 +64,12 @@ bool PieceMovementController::ExecuteMove(int fromX, int fromY, int toX, int toY
             }
 
             outNoticeText = L"相手の「守護」により防がれた";
-            outNoticeTimer = 1.2f;
+            outNoticeTimer = MovementStyleConstants::SHIELD_NOTICE_DURATION;
             logManager.AddLog(outNoticeText);
             return false;
         }
     }
 
-    // ゲームロジック側での実際の座標・回転変更と勝敗評価の実行
     if (gameLogic.MovePiece(fromX, fromY, toX, toY))
     {
         m_hasMovedThisTurn = true;
@@ -78,7 +85,6 @@ bool PieceMovementController::ExecuteMove(int fromX, int fromY, int toX, int toY
         const wchar_t* actor = (currentTurn == myPlayerType) ? L"あなた" : L"あいて";
         const wchar_t* targetName = (currentTurn == myPlayerType) ? L"あいて" : L"あなた";
 
-        // 行動結果に応じたログ文章の生成
         if (isEnemyDefeated)
         {
             logManager.AddLogFormat(L"%s[目:%d] が %s[目:%d] を撃破！", actor, atkFace, targetName, defFace);
@@ -88,7 +94,6 @@ bool PieceMovementController::ExecuteMove(int fromX, int fromY, int toX, int toY
             logManager.AddLogFormat(L"%sがコマ[%d] を (%d, %d) へ移動", actor, atkFace, toX, toY);
         }
 
-        // 自分が操作した移動であれば対戦相手に移動パケットを送信
         if (!isNetworkReceived && gameContext && gameContext->networkManager.IsConnected())
         {
             gameContext->networkManager.SendMovePiece(fromX, fromY, toX, toY);
@@ -100,7 +105,7 @@ bool PieceMovementController::ExecuteMove(int fromX, int fromY, int toX, int toY
     return false;
 }
 
-// 入力イベント（マウス・キーボード・UI）に応じたコマの選択・移動更新
+// フレーム入力更新
 void PieceMovementController::Update(const Mouse::State& mouseState, const Mouse::ButtonStateTracker& mouseTracker,
                                      const Keyboard::KeyboardStateTracker& kbTracker, const Keyboard::State& kbState,
                                      DiceBattleGame& gameLogic, GameLogManager& logManager,
@@ -108,13 +113,14 @@ void PieceMovementController::Update(const Mouse::State& mouseState, const Mouse
                                      bool isClient, PlayerType myPlayerType, bool isCtrlPressed,
                                      GameContext* gameContext)
 {
+    (void)mouseState;
+
     bool canControlPiece =
         !gameLogic.IsWaitingForRoll() && (gameLogic.GetRemainingSteps() > 0) && !gameLogic.IsAnyPieceMoving();
 
     if (!canControlPiece || logManager.IsButtonHovered() || uiController.IsDiceCheckBtnHovered())
         return;
 
-    // マウスクリックによる自陣コマの選択
     if (mouseTracker.leftButton == Mouse::ButtonStateTracker::PRESSED && !uiController.IsRollButtonHovered() &&
         !uiController.IsUpHovered() && !uiController.IsDownHovered() && !uiController.IsLeftHovered() &&
         !uiController.IsRightHovered())
@@ -133,35 +139,33 @@ void PieceMovementController::Update(const Mouse::State& mouseState, const Mouse
         }
     }
 
-    // UIボタン操作による移動方向の入力判定（Client視点の場合は反転）
-    int moveDx = 0, moveDy = 0;
+    int moveDx = 0;
+    int moveDy = 0;
     if (mouseTracker.leftButton == Mouse::ButtonStateTracker::PRESSED)
     {
         if (uiController.IsUpHovered())
-            moveDy = isClient ? 1 : -1;
+            moveDy = isClient ? MovementStyleConstants::DIRECTION_FORWARD : MovementStyleConstants::DIRECTION_BACKWARD;
         if (uiController.IsDownHovered())
-            moveDy = isClient ? -1 : 1;
+            moveDy = isClient ? MovementStyleConstants::DIRECTION_BACKWARD : MovementStyleConstants::DIRECTION_FORWARD;
         if (uiController.IsLeftHovered())
-            moveDx = isClient ? -1 : 1;
+            moveDx = isClient ? MovementStyleConstants::DIRECTION_BACKWARD : MovementStyleConstants::DIRECTION_FORWARD;
         if (uiController.IsRightHovered())
-            moveDx = isClient ? 1 : -1;
+            moveDx = isClient ? MovementStyleConstants::DIRECTION_FORWARD : MovementStyleConstants::DIRECTION_BACKWARD;
     }
 
-    // キーボード（WASD / 矢印キー）による移動方向の入力判定
     if (!isCtrlPressed)
     {
         if (kbTracker.IsKeyPressed(Keyboard::Keys::Up) || kbTracker.IsKeyPressed(Keyboard::Keys::W))
-            moveDy = isClient ? 1 : -1;
+            moveDy = isClient ? MovementStyleConstants::DIRECTION_FORWARD : MovementStyleConstants::DIRECTION_BACKWARD;
         if (kbTracker.IsKeyPressed(Keyboard::Keys::Down) || kbTracker.IsKeyPressed(Keyboard::Keys::S))
-            moveDy = isClient ? -1 : 1;
+            moveDy = isClient ? MovementStyleConstants::DIRECTION_BACKWARD : MovementStyleConstants::DIRECTION_FORWARD;
         if (kbTracker.IsKeyPressed(Keyboard::Keys::Left) || kbTracker.IsKeyPressed(Keyboard::Keys::A))
-            moveDx = isClient ? -1 : 1;
+            moveDx = isClient ? MovementStyleConstants::DIRECTION_BACKWARD : MovementStyleConstants::DIRECTION_FORWARD;
         if (kbTracker.IsKeyPressed(Keyboard::Keys::Right) || kbTracker.IsKeyPressed(Keyboard::Keys::D))
-            moveDx = isClient ? 1 : -1;
+            moveDx = isClient ? MovementStyleConstants::DIRECTION_FORWARD : MovementStyleConstants::DIRECTION_BACKWARD;
     }
 
-    // 移動先の妥当性を確認のうえ移動を実行
-    if (m_selectedX != -1 && (moveDx != 0 || moveDy != 0))
+    if (m_selectedX != MovementConstants::UNSELECTED_INDEX && (moveDx != 0 || moveDy != 0))
     {
         int targetX = m_selectedX + moveDx;
         int targetY = m_selectedY + moveDy;
@@ -186,7 +190,6 @@ void PieceMovementController::Update(const Mouse::State& mouseState, const Mouse
         }
     }
 
-    // ESCキーまたは歩数切れによる選択解除
     if (kbTracker.IsKeyPressed(Keyboard::Keys::Escape) || gameLogic.GetRemainingSteps() <= 0)
     {
         Reset();

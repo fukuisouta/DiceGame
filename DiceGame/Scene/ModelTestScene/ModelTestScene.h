@@ -12,50 +12,53 @@
 #include "Game.h"
 #include "Dice/Dice.h"
 
+// 3Dモデルテストシーン定数定義
+namespace ModelTestConstants
+{
+    constexpr float DEFAULT_FOV_DEGREE = 45.0f; // カメラ画角（度）
+    constexpr float NEAR_Z = 0.1f;              // ニアクリップ平面
+    constexpr float FAR_Z = 1000.0f;            // ファークリップ平面
+}
+
 // 3Dモデルの配置テストや挙動の検証を行うためのシーンクラス
-// EditorSceneと同様に Imase::SceneBase を継承し、SceneManager経由で管理されます
+// SceneManager経由で管理されます
 class ModelTestScene : public Imase::SceneBase<SceneId, GameContext>
 {
 public:
     ModelTestScene() = default;
     ~ModelTestScene() override = default;
 
-    // シーン切り替え時に一度だけ呼ばれる初期化処理を行います
+    // シーン切り替え時に一度だけ呼ばれる初期化処理を行う関数
     // カメラ、グリッド床、テスト用ダイスやJSONファイルからのステージオブジェクト読み込みを実行します
+    // 引数 gameContext: 共有ゲームコンテキスト参照
     void OnEnter(GameContext& gameContext) override;
 
-    // 毎フレームの更新処理（入力検出、カメラ制御、ダイスの物理更新など）を行います
-    // シーンマネージャーのUpdate関数から呼び出されます
+    // 毎フレームの更新処理（入力検出、カメラ制御、ダイスの物理更新など）を行う関数
+    // 引数 sceneController: シーンコントローラー参照, gameContext: 共有ゲームコンテキスト参照
     void Update(Imase::ISceneController<SceneId>& sceneController, GameContext& gameContext) override;
 
-    // 毎フレームの描画処理（グリッド、配置オブジェクト、ダイス、コライダー表示など）を行います
-    // シーンマネージャーのRender関数から呼び出されます
+    // 毎フレームの描画処理（グリッド、配置オブジェクト、ダイス、コライダー表示など）を行う関数
+    // 引数 gameContext: 共有ゲームコンテキスト参照
     void Render(GameContext& gameContext) override;
 
 private:
-    // JSON形式のステージデータから配置オブジェクト情報（PlacedObject）を読み込みます
-    // OnEnter処理の内部から呼び出されます
+    // JSON形式のステージデータから配置オブジェクト情報を読み込む関数
+    // 引数 gameContext: 共有ゲームコンテキスト参照, filePath: 読み込み用JSONファイルパス
     void LoadSceneFromJson(GameContext& gameContext, const std::string& filePath);
 
 private:
-    // カメラ操作、グリッド表示、当たり判定可視化を行うライブラリオブジェクト群です
-    std::unique_ptr<Imase::DebugCamera> m_debugCamera;
-    std::unique_ptr<Imase::GridFloor> m_gridFloor;
-    std::unique_ptr<Imase::CollisionRenderer> m_collisionRenderer;
+    std::unique_ptr<Imase::DebugCamera> m_debugCamera;             // デバッグカメラ制御インスタンス
+    std::unique_ptr<Imase::GridFloor> m_gridFloor;                 // グリッド床面描画インスタンス
+    std::unique_ptr<Imase::CollisionRenderer> m_collisionRenderer; // コライダー可視化描画インスタンス
 
-    // 描画で使用するビュー行列およびプロジェクション行列を保持します
-    DirectX::SimpleMath::Matrix m_view;
-    DirectX::SimpleMath::Matrix m_projection;
+    DirectX::SimpleMath::Matrix m_view;       // ビュー行列
+    DirectX::SimpleMath::Matrix m_projection; // プロジェクション行列
 
-    // キーボードの1回押し（トラッキング）判定用オブジェクトです
-    DirectX::Keyboard::KeyboardStateTracker m_keyboardTracker;
+    DirectX::Keyboard::KeyboardStateTracker m_keyboardTracker; // キーボードトラッカー
 
-    // テスト動作確認用のダイスオブジェクトです
-    Dice m_dice;
+    Dice m_dice; // テスト用ダイスオブジェクト
 
-    // JSONから読み込んだ背景モデルなどの配置用オブジェクトリストです
-    std::vector<PlacedObject> m_stageObjects;
+    std::vector<PlacedObject> m_stageObjects; // 背景モデル等の配置オブジェクト配列
 
-    // 当たり判定（コライダー）のデバッグ表示フラグです
-    bool m_showCollision = true;
+    bool m_showCollision = true; // コライダー枠線表示フラグ
 };

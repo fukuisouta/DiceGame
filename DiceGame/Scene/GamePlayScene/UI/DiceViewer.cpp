@@ -11,14 +11,12 @@ void DiceViewer::Update(const DirectX::Mouse::State& mouseState, float dt)
     if (!m_isOpen)
         return;
 
-    // 左ドラッグ開始[cite: 54]
     if (mouseState.leftButton && !m_isDragging)
     {
         m_isDragging = true;
         m_lastMouseX = mouseState.x;
         m_lastMouseY = mouseState.y;
     }
-    // ドラッグ中（スクリーン基準の回転処理）[cite: 54]
     else if (mouseState.leftButton && m_isDragging)
     {
         float dx = static_cast<float>(mouseState.x - m_lastMouseX);
@@ -38,17 +36,15 @@ void DiceViewer::Update(const DirectX::Mouse::State& mouseState, float dt)
         m_lastMouseX = mouseState.x;
         m_lastMouseY = mouseState.y;
     }
-    // ドラッグ終了[cite: 54]
     else if (!mouseState.leftButton)
     {
         m_isDragging = false;
     }
 
-    // マウスホイールによる拡大・縮小（ズーム）[cite: 54]
     int scrollDelta = mouseState.scrollWheelValue - m_lastScrollWheel;
     if (scrollDelta != 0)
     {
-        float zoomAmount = static_cast<float>(scrollDelta) * 0.003f;
+        float zoomAmount = static_cast<float>(scrollDelta) * ViewerConstants::WHEEL_ZOOM_SCALE;
         m_cameraDistance -= zoomAmount;
         m_cameraDistance = std::clamp(m_cameraDistance, m_minDistance, m_maxDistance);
     }
@@ -72,5 +68,6 @@ Matrix DiceViewer::GetViewMatrix() const
 // プロジェクション行列の生成
 Matrix DiceViewer::GetProjectionMatrix() const
 {
-    return Matrix::CreatePerspectiveFieldOfView(DirectX::XMConvertToRadians(45.0f), m_aspectRatio, 0.1f, 100.0f);
+    return Matrix::CreatePerspectiveFieldOfView(DirectX::XMConvertToRadians(ViewerConstants::FOV_ANGLE_DEGREE),
+                                                m_aspectRatio, ViewerConstants::NEAR_Z, ViewerConstants::FAR_Z);
 }

@@ -2,9 +2,7 @@
 #include "NetworkManager.h"
 #include <functional>
 
-// ============================================================================
 // DiceGame 専用のネットワーク制御派生クラス
-// ============================================================================
 class DiceGameNetworkManager : public NetworkManager
 {
 public:
@@ -13,7 +11,9 @@ public:
 
     // --- 送信用ヘルパー関数 ---
 
-    // ダイスの出目を通信相手に送信
+    // ダイスの出目を通信相手に送信する関数
+    // 引数 steps: 判定された歩数
+    // 戻り値: 送信成功時 true, 失敗時 false
     bool SendDiceResult(int steps)
     {
         MsgDiceResult msg{};
@@ -23,7 +23,9 @@ public:
         return SendPacket(&msg, sizeof(msg));
     }
 
-    // コマの移動（移動元と移動先座標）を通信相手に送信
+    // コマの移動（移動元と移動先座標）を通信相手に送信する関数
+    // 引数 fromX, fromY: 移動元座標, toX, toY: 移動先座標
+    // 戻り値: 送信成功時 true, 失敗時 false
     bool SendMovePiece(int fromX, int fromY, int toX, int toY)
     {
         MsgMovePiece msg{};
@@ -38,26 +40,31 @@ public:
 
     // --- 受信ハンドリング処理 ---
 
-    // コールバック関数型定義
-    using OnDiceResultCallback = std::function<void(int steps)>;
-    using OnMovePieceCallback = std::function<void(int fromX, int fromY, int toX, int toY)>;
-    using OnWorldSyncCallback = std::function<void(const MsgWorldSync& syncPkt)>;
+    using OnDiceResultCallback = std::function<void(int steps)>; // ダイス出目受信のコールバック型定義
+    using OnMovePieceCallback =
+        std::function<void(int fromX, int fromY, int toX, int toY)>; // コマ移動受信のコールバック型定義
+    using OnWorldSyncCallback =
+        std::function<void(const MsgWorldSync& syncPkt)>; // 盤面全体同期受信のコールバック型定義
 
-    // イベント受信ハンドラーの登録
+    // 出目受信コールバック関数をセットする関数
     void SetOnDiceResult(OnDiceResultCallback cb)
     {
         m_onDiceResult = cb;
     }
+
+    // 移動受信コールバック関数をセットする関数
     void SetOnMovePiece(OnMovePieceCallback cb)
     {
         m_onMovePiece = cb;
     }
+
+    // 盤面同期受信コールバック関数をセットする関数
     void SetOnWorldSync(OnWorldSyncCallback cb)
     {
         m_onWorldSync = cb;
     }
 
-    // 受信パケットの安全な一括処理（毎フレーム Update の後に呼び出します）
+    // 受信パケットの安全な一括解析およびコールバック実行を行う関数
     void DispatchPackets()
     {
         std::vector<uint8_t> packet;
@@ -70,7 +77,7 @@ public:
 
             switch (header->type)
             {
-                // ダイス出目パケットの受信処理
+                // ダイス出目パケットの処理
                 case PacketType::CS_DiceResult:
                     if (m_onDiceResult && packet.size() >= sizeof(MsgDiceResult))
                     {
@@ -79,7 +86,7 @@ public:
                     }
                     break;
 
-                // コマ移動パケットの受信処理
+                // コマ移動パケットの処理
                 case PacketType::CS_MovePiece:
                     if (m_onMovePiece && packet.size() >= sizeof(MsgMovePiece))
                     {
@@ -88,7 +95,7 @@ public:
                     }
                     break;
 
-                // 盤面全体同期パケットの受信処理
+                // 盤面全体同期パケットの処理
                 case PacketType::SC_WorldSync:
                     if (m_onWorldSync && packet.size() >= sizeof(MsgWorldSync))
                     {
@@ -104,7 +111,7 @@ public:
     }
 
 private:
-    OnDiceResultCallback m_onDiceResult; // 出目受信コールバック
-    OnMovePieceCallback m_onMovePiece;   // 移動受信コールバック
-    OnWorldSyncCallback m_onWorldSync;   // 盤面同期受信コールバック
+    OnDiceResultCallback m_onDiceResult; // ダイス出目受信時に実行されるイベント通知関数
+    OnMovePieceCallback m_onMovePiece;   // コマ移動受信時に実行されるイベント通知関数
+    OnWorldSyncCallback m_onWorldSync;   // 盤面同期受信時に実行されるイベント通知関数
 };

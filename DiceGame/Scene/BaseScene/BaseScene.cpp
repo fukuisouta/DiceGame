@@ -11,22 +11,36 @@
 
 using namespace DirectX;
 
-// 更新
+// デバッグ表示位置等の定数定義
+namespace BaseSceneStyleConstants
+{
+    constexpr float DEBUG_TEXT_POS_X = 0.0f; // デバッグテキスト表示のX座標
+    constexpr float DEBUG_TEXT_POS_Y = 0.0f; // デバッグテキスト表示のY座標
+}
+
+// フレーム更新処理
 void BaseScene::Update(Imase::ISceneController<SceneId>& sceneController, GameContext& gameContext)
 {
-	Imase::DebugRenderer& debugRenderer = gameContext.debugRenderer;
+    // 未使用パラメータ警告防止
+    (void)sceneController;
 
-	debugRenderer.DrawText({ 0.0f, 0.0f }, L"BaseScene");
+    Imase::DebugRenderer& debugRenderer = gameContext.debugRenderer;
+
+    // 画面にデバッグテキストを描画
+    debugRenderer.DrawText({BaseSceneStyleConstants::DEBUG_TEXT_POS_X, BaseSceneStyleConstants::DEBUG_TEXT_POS_Y},
+                           L"BaseScene");
 }
 
-// 描画
+// 描画処理
 void BaseScene::Render(GameContext& gameContext)
 {
-	gameContext;
+    // 未使用パラメータの明示
+    (void)gameContext;
 }
 
-// シーン切り替え時に呼び出される関数
+// シーン進入時（切り替え時）処理
 void BaseScene::OnEnter(GameContext& gameContext)
 {
-	gameContext;
+    // 未使用パラメータの明示
+    (void)gameContext;
 }

@@ -34,28 +34,27 @@ bool TurnManager::HasTurnChanged(PlayerType currentTurn)
     return false;
 }
 
-// 毎フレームの更新処理（テロップタイマー減衰、ターン交替検知、オフラインCPUの思考・移動）
+// 毎フレームの更新処理
 void TurnManager::Update(float dt, DiceBattleGame& gameLogic, DiceBattleAI& ai, GameLogManager& logManager,
                          bool isNetworkConnected)
 {
-    // ターン通知タイマーの減衰
     if (m_noticeTimer > 0.0f)
     {
         m_noticeTimer -= dt;
         if (m_noticeTimer < 0.0f)
+        {
             m_noticeTimer = 0.0f;
+        }
     }
 
-    // ターン切り替え検知とテロップ通知
     PlayerType currentTurn = gameLogic.GetCurrentTurn();
     if (HasTurnChanged(currentTurn))
     {
         gameLogic.SetRemainingSteps(0);
         std::wstring notice = (currentTurn == PlayerType::Player1) ? L"あなたのターン" : L"あいてのターン";
-        TriggerNotice(notice, 1.5f, &logManager);
+        TriggerNotice(notice, TurnManagerConstants::DEFAULT_NOTICE_DURATION, &logManager);
     }
 
-    // オフライン（ローカル）プレイ時のCPU（Player2）思考および移動実行
     if (!isNetworkConnected && currentTurn == PlayerType::Player2)
     {
         gameLogic.SetPlayerShield(PlayerType::Player2, false);

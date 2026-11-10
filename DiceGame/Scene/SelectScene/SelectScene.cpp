@@ -8,9 +8,34 @@
 using namespace DirectX;
 using namespace DirectX::SimpleMath;
 
+// モード選択シーン描画スタイル定数定義（マクロ衝突回避のため SELECT_COLOR_ に変更）
+namespace SelectStyleConstants
+{
+    constexpr float HOVER_SCALE_NORMAL = 1.1f; // 通常ボタンホバー時スケール
+    constexpr float HOVER_SCALE_ARROW = 1.25f; // 矢印ボタンホバー時スケール
+    constexpr float CAMERA_Z_POS = -10.0f;     // カメラのZ位置座標
+    constexpr int CLICK_PARTICLE_COUNT = 20;   // クリック発生粒子数
+
+    constexpr Vector3 LEFT_ARROW_POS = Vector3(-4.5f, -0.2f, 0.0f); // 左矢印ワールド座標
+    constexpr Vector3 RIGHT_ARROW_POS = Vector3(4.5f, -0.2f, 0.0f); // 右矢印ワールド座標
+    constexpr Vector3 ARROW_SCALE = Vector3(1.3f, 1.3f, 1.0f);      // 矢印描画スケール
+    constexpr Vector3 GIF_PANEL_SCALE = Vector3(-7.2f, 4.2f, 1.0f); // GIF表示枠スケール
+    constexpr Vector3 GIF_PANEL_POS = Vector3(0.0f, -0.2f, 0.0f);   // GIF表示枠位置
+
+    // Windows API マクロとの衝突を避けるため COLOR_ から SELECT_COLOR_ へ変更
+    constexpr Vector4 SELECT_COLOR_DIMMED = Vector4(0.4f, 0.4f, 0.4f, 1.0f);    // 非表示/暗転時カラー
+    constexpr Vector4 SELECT_COLOR_HIGHLIGHT = Vector4(1.4f, 1.4f, 1.4f, 1.0f); // ホバー強調時カラー
+    constexpr Vector4 SELECT_COLOR_NORMAL = Vector4(1.0f, 1.0f, 1.0f, 1.0f);    // 通常時カラー
+
+    constexpr float TEXT_TITLE_X_OFFSET_STEP1 = 110.0f; // STEP 1 タイトルテキストXオフセット
+    constexpr float TEXT_TITLE_X_OFFSET_STEP2 = 95.0f;  // STEP 2 タイトルテキストXオフセット
+    constexpr float TEXT_TITLE_X_OFFSET_STEP3 = 95.0f;  // STEP 3 タイトルテキストXオフセット
+    constexpr float TEXT_TITLE_Y_RATIO = 0.08f;         // タイトルテキスト表示Y比率
+}
+
 namespace
 {
-    // 正射影（Ortho）空間の座標とスケールを画面座標系の矩形（RECT）へ変換するヘルパー関数
+    // 正射影（Ortho）空間座標を画面座標系の矩形（RECT）へ変換する内部関数
     RECT ConvertOrthoToScreenRect(Vector3 pos, Vector3 scale, float orthoWidth, float orthoHeight, float screenWidth,
                                   float screenHeight)
     {
@@ -60,23 +85,19 @@ void SelectScene::OnEnter(GameContext& gameContext)
 
     m_mouseTracker.Reset();
 
-    // ★ パーティクルマネージャーの初期化とクリア
     m_particleManager.Initialize(device, context);
     m_particleManager.Clear();
 
-    // ルール説明用の各種GIFアニメーションファイルのロード
     m_gifRoll.LoadFromFile(device, L"Resources/Textures/Roll.gif");
     m_gifMove.LoadFromFile(device, L"Resources/Textures/Move.gif");
     m_gifClash.LoadFromFile(device, L"Resources/Textures/Kill.gif");
 
-    // ページ切替矢印テクスチャのプリロード
     GetOrLoadTexture(device, "Left.png");
     GetOrLoadTexture(device, "Right.png");
 
     m_showRulePanel = false;
     m_currentGuidePage = 0;
 
-    // JSONファイルからの配置オブジェクトデータの復元
     SceneData loadedData;
     m_placedObjects.clear();
 
@@ -115,7 +136,7 @@ void SelectScene::OnEnter(GameContext& gameContext)
     }
 }
 
-// 単位クワッド（板ポリゴン）の描画
+// 単位クワッドの描画
 void SelectScene::DrawQuadWithPrimitiveBatch(ID3D11DeviceContext* context)
 {
     (void)context;
@@ -130,7 +151,7 @@ void SelectScene::DrawQuadWithPrimitiveBatch(ID3D11DeviceContext* context)
     m_primitiveBatch->End();
 }
 
-// テクスチャのキャッシュ付きロードヘルパー関数
+// テクスチャのキャッシュ付きロード
 Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> SelectScene::GetOrLoadTexture(ID3D11Device* device,
                                                                                const std::string& texName)
 {
@@ -160,15 +181,13 @@ Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> SelectScene::GetOrLoadTexture(I
     return nullptr;
 }
 
-// 毎フレームのロジック・入力・ネットワークパケット同期更新
+// 毎フレームのロジック・入力更新
 void SelectScene::Update(Imase::ISceneController<SceneId>& sceneController, GameContext& gameContext)
 {
     float dt = static_cast<float>(gameContext.timer.GetElapsedSeconds());
 
-    // ★ パーティクルの物理・寿命更新
     m_particleManager.Update(dt);
 
-    // オンライン対戦時：ホストからのモード選択パケット受信検知および同期シーン遷移
     if (gameContext.networkManager.IsConnected())
     {
         std::vector<uint8_t> packet;
@@ -196,7 +215,6 @@ void SelectScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
         }
     }
 
-    // デバッグ・エディターシーンへのショートカットキー（Tab + E）
     auto kbState = DirectX::Keyboard::Get().GetState();
     if (kbState.IsKeyDown(DirectX::Keyboard::Keys::Tab) && kbState.IsKeyDown(DirectX::Keyboard::Keys::E))
     {
@@ -204,7 +222,6 @@ void SelectScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
         return;
     }
 
-    // ルールガイドアニメーション（GIF）のコマ更新
     if (m_showRulePanel)
     {
         if (m_currentGuidePage == 0)
@@ -220,10 +237,9 @@ void SelectScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
     float screenHeight = static_cast<float>(outputSize.bottom - outputSize.top);
     float aspectRatio = screenWidth / screenHeight;
 
-    float orthoHeight = 10.0f;
+    float orthoHeight = SelectConstants::ORTHO_HEIGHT;
     float orthoWidth = orthoHeight * aspectRatio;
 
-    // オブジェクトタグに基づき各UIボタンの画面領域（RECT）を算出
     for (const auto& obj : m_placedObjects)
     {
         std::string tagLower = obj.tag;
@@ -241,7 +257,6 @@ void SelectScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
             m_advanceBtnRect =
                 ConvertOrthoToScreenRect(obj.position, obj.scale, orthoWidth, orthoHeight, screenWidth, screenHeight);
         }
-        // エディタで配置した GUIDE / RULE タグのオブジェクトから領域を算出
         else if (tagLower == "guide" || tagLower == "rule" || nameLower.find("guide") != std::string::npos ||
                  nameLower.find("rule") != std::string::npos)
         {
@@ -250,17 +265,11 @@ void SelectScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
         }
     }
 
-    // ページ切り替え矢印ボタンの領域計算
-    Vector3 leftArrowPos(-4.5f, -0.2f, 0.0f);
-    Vector3 rightArrowPos(4.5f, -0.2f, 0.0f);
-    Vector3 arrowScale(1.3f, 1.3f, 1.0f);
+    m_prevArrowRect = ConvertOrthoToScreenRect(SelectStyleConstants::LEFT_ARROW_POS, SelectStyleConstants::ARROW_SCALE,
+                                               orthoWidth, orthoHeight, screenWidth, screenHeight);
+    m_nextArrowRect = ConvertOrthoToScreenRect(SelectStyleConstants::RIGHT_ARROW_POS, SelectStyleConstants::ARROW_SCALE,
+                                               orthoWidth, orthoHeight, screenWidth, screenHeight);
 
-    m_prevArrowRect =
-        ConvertOrthoToScreenRect(leftArrowPos, arrowScale, orthoWidth, orthoHeight, screenWidth, screenHeight);
-    m_nextArrowRect =
-        ConvertOrthoToScreenRect(rightArrowPos, arrowScale, orthoWidth, orthoHeight, screenWidth, screenHeight);
-
-    // マウスカーソルホバー判定の更新
     auto mouseState = DirectX::Mouse::Get().GetState();
     m_mouseTracker.Update(mouseState);
 
@@ -279,31 +288,29 @@ void SelectScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
     m_isNextHovered = (mouseState.x >= m_nextArrowRect.left && mouseState.x <= m_nextArrowRect.right &&
                        mouseState.y >= m_nextArrowRect.top && mouseState.y <= m_nextArrowRect.bottom);
 
-    // クリックイベントの処理およびパーティクル発生
     if (m_mouseTracker.leftButton == DirectX::Mouse::ButtonStateTracker::PRESSED)
     {
-        // ★ 画面クリック座標にパーティクルを発生
-        m_particleManager.SpawnClickParticles(static_cast<float>(mouseState.x), static_cast<float>(mouseState.y), 20);
+        m_particleManager.SpawnClickParticles(static_cast<float>(mouseState.x), static_cast<float>(mouseState.y),
+                                              SelectStyleConstants::CLICK_PARTICLE_COUNT);
 
         if (m_isRuleBtnHovered)
         {
-            m_showRulePanel = !m_showRulePanel; // ルール表示切替
+            m_showRulePanel = !m_showRulePanel;
         }
         else if (m_showRulePanel)
         {
-            // ページ切替処理
             if (m_isPrevHovered)
             {
-                m_currentGuidePage = (m_currentGuidePage + 1) % 3;
+                m_currentGuidePage = (m_currentGuidePage + 1) % SelectConstants::TOTAL_GUIDE_PAGES;
             }
             else if (m_isNextHovered)
             {
-                m_currentGuidePage = (m_currentGuidePage + 2) % 3;
+                m_currentGuidePage = (m_currentGuidePage + (SelectConstants::TOTAL_GUIDE_PAGES - 1)) %
+                                     SelectConstants::TOTAL_GUIDE_PAGES;
             }
         }
         else
         {
-            // オンライン選択の送信用ラムダ式
             auto SendModePacket = [&](uint8_t modeVal)
             {
                 if (gameContext.networkManager.IsConnected() &&
@@ -317,7 +324,6 @@ void SelectScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
                 }
             };
 
-            // モード選択ボタンクリック時
             if (m_isOriginalHovered)
             {
                 SendModePacket(0);
@@ -334,7 +340,7 @@ void SelectScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
     }
 }
 
-// 画面のレンダリング描画処理
+// 描画処理
 void SelectScene::Render(GameContext& gameContext)
 {
     ID3D11Device* device = gameContext.deviceResources.GetD3DDevice();
@@ -345,15 +351,15 @@ void SelectScene::Render(GameContext& gameContext)
     float screenHeight = static_cast<float>(outputSize.bottom - outputSize.top);
     float aspectRatio = screenWidth / screenHeight;
 
-    Vector3 cameraPos = Vector3(0.0f, 0.0f, -10.0f);
+    Vector3 cameraPos = Vector3(0.0f, 0.0f, SelectStyleConstants::CAMERA_Z_POS);
     Matrix perspectiveView = Matrix::CreateLookAt(cameraPos, Vector3::Zero, Vector3::Up);
     Matrix perspectiveProj =
-        Matrix::CreatePerspectiveFieldOfView(XMConvertToRadians(45.0f), aspectRatio, 0.1f, 1000.0f);
+        Matrix::CreatePerspectiveFieldOfView(XMConvertToRadians(SelectConstants::DEFAULT_FOV_DEGREE), aspectRatio,
+                                             SelectConstants::CAMERA_NEAR_Z, SelectConstants::CAMERA_FAR_Z);
 
     context->OMSetBlendState(gameContext.commonStates.Opaque(), nullptr, 0xFFFFFFFF);
     context->OMSetDepthStencilState(gameContext.commonStates.DepthDefault(), 0);
 
-    // 1. 3D背景モデルおよびスカイドームの描画
     for (const auto& obj : m_placedObjects)
     {
         if (!obj.model)
@@ -402,11 +408,12 @@ void SelectScene::Render(GameContext& gameContext)
 
     context->ClearDepthStencilView(gameContext.deviceResources.GetDepthStencilView(), D3D11_CLEAR_DEPTH, 1.0f, 0);
 
-    // 2. 2D UIボタン（正射影描画）の更新と描画
-    Matrix orthoView = Matrix::CreateLookAt(Vector3(0.0f, 0.0f, -10.0f), Vector3::Zero, Vector3::Up);
-    float orthoHeight = 10.0f;
+    Matrix orthoView =
+        Matrix::CreateLookAt(Vector3(0.0f, 0.0f, SelectStyleConstants::CAMERA_Z_POS), Vector3::Zero, Vector3::Up);
+    float orthoHeight = SelectConstants::ORTHO_HEIGHT;
     float orthoWidth = orthoHeight * aspectRatio;
-    Matrix orthoProj = Matrix::CreateOrthographic(orthoWidth, orthoHeight, 0.1f, 1000.0f);
+    Matrix orthoProj = Matrix::CreateOrthographic(orthoWidth, orthoHeight, SelectConstants::CAMERA_NEAR_Z,
+                                                  SelectConstants::CAMERA_FAR_Z);
 
     context->OMSetBlendState(gameContext.commonStates.AlphaBlend(), nullptr, 0xFFFFFFFF);
     context->RSSetState(gameContext.commonStates.CullNone());
@@ -431,11 +438,10 @@ void SelectScene::Render(GameContext& gameContext)
         bool isGuide = (tagLower.find("guide") != std::string::npos || tagLower.find("rule") != std::string::npos ||
                         nameLower.find("guide") != std::string::npos || nameLower.find("rule") != std::string::npos);
 
-        // ホバー時の演出（少し拡大・明るくする）
         float scaleMul = 1.0f;
         if ((isOriginal && m_isOriginalHovered) || (isAdvance && m_isAdvanceHovered) || (isGuide && m_isRuleBtnHovered))
         {
-            scaleMul = 1.1f;
+            scaleMul = SelectStyleConstants::HOVER_SCALE_NORMAL;
         }
 
         Matrix localWorld =
@@ -451,19 +457,18 @@ void SelectScene::Render(GameContext& gameContext)
             m_effect->SetView(orthoView);
             m_effect->SetProjection(orthoProj);
 
-            // ホバー時・暗転時のディフューズカラー調整
             if (m_showRulePanel)
             {
-                m_effect->SetDiffuseColor(Vector4(0.4f, 0.4f, 0.4f, 1.0f));
+                m_effect->SetDiffuseColor(SelectStyleConstants::SELECT_COLOR_DIMMED);
             }
             else if ((isOriginal && m_isOriginalHovered) || (isAdvance && m_isAdvanceHovered) ||
                      (isGuide && m_isRuleBtnHovered))
             {
-                m_effect->SetDiffuseColor(Vector4(1.4f, 1.4f, 1.4f, 1.0f));
+                m_effect->SetDiffuseColor(SelectStyleConstants::SELECT_COLOR_HIGHLIGHT);
             }
             else
             {
-                m_effect->SetDiffuseColor(Vector4(1.0f, 1.0f, 1.0f, 1.0f));
+                m_effect->SetDiffuseColor(SelectStyleConstants::SELECT_COLOR_NORMAL);
             }
 
             m_effect->Apply(context);
@@ -472,7 +477,6 @@ void SelectScene::Render(GameContext& gameContext)
         }
     }
 
-    // 3. ルール解説パネル（GIFアニメーション＆ページめくり矢印）のオーバーレイ描画
     if (m_showRulePanel)
     {
         m_effect->SetTextureEnabled(true);
@@ -487,12 +491,13 @@ void SelectScene::Render(GameContext& gameContext)
 
         if (currentGifTex)
         {
-            Matrix gifWorld = Matrix::CreateScale(-7.2f, 4.2f, 1.0f) * Matrix::CreateTranslation(0.0f, -0.2f, 0.0f);
+            Matrix gifWorld = Matrix::CreateScale(SelectStyleConstants::GIF_PANEL_SCALE) *
+                              Matrix::CreateTranslation(SelectStyleConstants::GIF_PANEL_POS);
             m_effect->SetTexture(currentGifTex);
             m_effect->SetWorld(gifWorld);
             m_effect->SetView(orthoView);
             m_effect->SetProjection(orthoProj);
-            m_effect->SetDiffuseColor(Vector4(1.0f, 1.0f, 1.0f, 1.0f));
+            m_effect->SetDiffuseColor(SelectStyleConstants::SELECT_COLOR_NORMAL);
             m_effect->Apply(context);
             context->IASetInputLayout(m_inputLayout.Get());
             DrawQuadWithPrimitiveBatch(context);
@@ -503,15 +508,15 @@ void SelectScene::Render(GameContext& gameContext)
 
         if (leftTex)
         {
-            float scaleMul = m_isPrevHovered ? 1.25f : 1.0f;
-            Matrix leftWorld = Matrix::CreateScale(1.3f * scaleMul, 1.3f * scaleMul, 1.0f) *
-                               Matrix::CreateTranslation(-4.5f, -0.2f, 0.0f);
+            float scaleMul = m_isPrevHovered ? SelectStyleConstants::HOVER_SCALE_ARROW : 1.0f;
+            Matrix leftWorld = Matrix::CreateScale(SelectStyleConstants::ARROW_SCALE * scaleMul) *
+                               Matrix::CreateTranslation(SelectStyleConstants::LEFT_ARROW_POS);
             m_effect->SetTexture(leftTex.Get());
             m_effect->SetWorld(leftWorld);
             m_effect->SetView(orthoView);
             m_effect->SetProjection(orthoProj);
-            m_effect->SetDiffuseColor(m_isPrevHovered ? Vector4(1.4f, 1.4f, 1.4f, 1.0f)
-                                                      : Vector4(1.0f, 1.0f, 1.0f, 1.0f));
+            m_effect->SetDiffuseColor(m_isPrevHovered ? SelectStyleConstants::SELECT_COLOR_HIGHLIGHT
+                                                      : SelectStyleConstants::SELECT_COLOR_NORMAL);
             m_effect->Apply(context);
             context->IASetInputLayout(m_inputLayout.Get());
             DrawQuadWithPrimitiveBatch(context);
@@ -519,22 +524,21 @@ void SelectScene::Render(GameContext& gameContext)
 
         if (rightTex)
         {
-            float scaleMul = m_isNextHovered ? 1.25f : 1.0f;
-            Matrix rightWorld = Matrix::CreateScale(1.3f * scaleMul, 1.3f * scaleMul, 1.0f) *
-                                Matrix::CreateTranslation(4.5f, -0.2f, 0.0f);
+            float scaleMul = m_isNextHovered ? SelectStyleConstants::HOVER_SCALE_ARROW : 1.0f;
+            Matrix rightWorld = Matrix::CreateScale(SelectStyleConstants::ARROW_SCALE * scaleMul) *
+                                Matrix::CreateTranslation(SelectStyleConstants::RIGHT_ARROW_POS);
             m_effect->SetTexture(rightTex.Get());
             m_effect->SetWorld(rightWorld);
             m_effect->SetView(orthoView);
             m_effect->SetProjection(orthoProj);
-            m_effect->SetDiffuseColor(m_isNextHovered ? Vector4(1.4f, 1.4f, 1.4f, 1.0f)
-                                                      : Vector4(1.0f, 1.0f, 1.0f, 1.0f));
+            m_effect->SetDiffuseColor(m_isNextHovered ? SelectStyleConstants::SELECT_COLOR_HIGHLIGHT
+                                                      : SelectStyleConstants::SELECT_COLOR_NORMAL);
             m_effect->Apply(context);
             context->IASetInputLayout(m_inputLayout.Get());
             DrawQuadWithPrimitiveBatch(context);
         }
     }
 
-    // ★ 4. 2Dパーティクルの描画（2D UIやルールパネルの前面に描画）
     m_particleManager.Render(context, screenWidth, screenHeight, gameContext.commonStates);
 
     context->OMSetBlendState(gameContext.commonStates.Opaque(), nullptr, 0xFFFFFFFF);
@@ -543,19 +547,26 @@ void SelectScene::Render(GameContext& gameContext)
 
     Imase::DebugRenderer& debugRenderer = gameContext.debugRenderer;
 
-    // ガイドページのタイトルテキスト描画
     if (m_showRulePanel)
     {
         float textCenterX = screenWidth * 0.5f;
-        float textCenterY = screenHeight * 0.08f;
+        float textCenterY = screenHeight * SelectStyleConstants::TEXT_TITLE_Y_RATIO;
 
         if (m_currentGuidePage == 0)
-            debugRenderer.DrawText({textCenterX - 110.0f, textCenterY}, DirectX::Colors::White, L"STEP 1 : ROLL DICE");
+        {
+            debugRenderer.DrawText({textCenterX - SelectStyleConstants::TEXT_TITLE_X_OFFSET_STEP1, textCenterY},
+                                   DirectX::Colors::White, L"STEP 1 : ROLL DICE");
+        }
         else if (m_currentGuidePage == 1)
-            debugRenderer.DrawText({textCenterX - 95.0f, textCenterY}, DirectX::Colors::White, L"STEP 2 : MOVE PIECE");
+        {
+            debugRenderer.DrawText({textCenterX - SelectStyleConstants::TEXT_TITLE_X_OFFSET_STEP2, textCenterY},
+                                   DirectX::Colors::White, L"STEP 2 : MOVE PIECE");
+        }
         else if (m_currentGuidePage == 2)
-            debugRenderer.DrawText({textCenterX - 95.0f, textCenterY}, DirectX::Colors::White,
-                                   L"STEP 3 : CLASH / KILL");
+        {
+            debugRenderer.DrawText({textCenterX - SelectStyleConstants::TEXT_TITLE_X_OFFSET_STEP3, textCenterY},
+                                   DirectX::Colors::White, L"STEP 3 : CLASH / KILL");
+        }
     }
 
     debugRenderer.Render(context, &gameContext.commonStates);

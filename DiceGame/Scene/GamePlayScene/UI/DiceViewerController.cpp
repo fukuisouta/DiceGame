@@ -7,6 +7,17 @@
 using namespace DirectX;
 using namespace DirectX::SimpleMath;
 
+// ビューワーコントローラー描画スタイル定数定義
+namespace ViewerControllerStyleConstants
+{
+    constexpr float RESET_BTN_OFFSET_RIGHT = 270.0f; // リセットボタン右位置オフセット
+    constexpr float RESET_BTN_WIDTH = 120.0f;        // リセットボタン幅
+    constexpr float CLOSE_BTN_OFFSET_RIGHT = 130.0f; // 閉じるボタン右位置オフセット
+    constexpr float CLOSE_BTN_WIDTH = 120.0f;        // 閉じるボタン幅
+    constexpr float BTN_TOP_Y = 30.0f;               // ボタンTop位置
+    constexpr float BTN_BOTTOM_Y = 70.0f;            // ボタンBottom位置
+}
+
 // 初期化処理
 void DiceViewerController::Initialize(ID3D11Device* device, ID3D11DeviceContext* context, float aspectRatio)
 {
@@ -27,14 +38,13 @@ void DiceViewerController::Open(Dice* targetDice)
         m_diceViewer.ResetCamera();
 }
 
-// ダイスチェック画面の入力操作・ボタン操作の更新
+// 入力およびボタン操作更新
 bool DiceViewerController::Update(float dt, const Mouse::State& mouseState,
                                   const Mouse::ButtonStateTracker& mouseTracker,
                                   const Keyboard::KeyboardStateTracker& kbTracker,
                                   const GamePlayUIController& uiController, Dice* targetDice, float screenWidth,
                                   float screenHeight)
 {
-    // ボタンホバーからダイスチェック画面を開く[cite: 56]
     if (!IsOpen())
     {
         if (uiController.IsDiceCheckBtnHovered() && mouseTracker.leftButton == Mouse::ButtonStateTracker::PRESSED)
@@ -45,7 +55,6 @@ bool DiceViewerController::Update(float dt, const Mouse::State& mouseState,
         return false;
     }
 
-    // 開いている状態の更新処理[cite: 56]
     m_diceViewer.SetAspectRatio(screenWidth / screenHeight);
     m_diceViewer.Update(mouseState, dt);
 
@@ -65,7 +74,6 @@ bool DiceViewerController::Update(float dt, const Mouse::State& mouseState,
         }
     }
 
-    // ESCキー押下でダイスチェック画面を閉じる
     if (kbTracker.IsKeyPressed(Keyboard::Keys::Escape))
     {
         Close();
@@ -75,7 +83,7 @@ bool DiceViewerController::Update(float dt, const Mouse::State& mouseState,
     return true;
 }
 
-// ダイスチェック用オーバーレイ背景・テキスト・3Dダイスの描画
+// 描画処理
 void DiceViewerController::Render(ID3D11DeviceContext* context, CommonStates& states,
                                   Imase::DebugRenderer& debugRenderer, const GamePlayUIController& uiController,
                                   Dice* targetDice, float screenWidth, float screenHeight)
@@ -107,7 +115,6 @@ void DiceViewerController::Render(ID3D11DeviceContext* context, CommonStates& st
     m_colorEffect->Apply(context);
     m_colorPrimitiveBatch->Begin();
 
-    // 半透明背景描画[cite: 56]
     Vector4 bgCol(0.0f, 0.0f, 0.0f, 0.75f);
     VertexPositionColor bg0(Vector3(0.0f, 0.0f, 0.0f), bgCol);
     VertexPositionColor bg1(Vector3(screenWidth, 0.0f, 0.0f), bgCol);
@@ -116,9 +123,15 @@ void DiceViewerController::Render(ID3D11DeviceContext* context, CommonStates& st
     m_colorPrimitiveBatch->DrawTriangle(bg0, bg1, bg2);
     m_colorPrimitiveBatch->DrawTriangle(bg2, bg1, bg3);
 
-    // リセット / 閉じるボタンの枠描画[cite: 56]
-    RECT resetRect = {static_cast<LONG>(screenWidth - 270), 30, static_cast<LONG>(screenWidth - 150), 70};
-    RECT closeRect = {static_cast<LONG>(screenWidth - 130), 30, static_cast<LONG>(screenWidth - 10), 70};
+    LONG resetLeft = static_cast<LONG>(screenWidth - ViewerControllerStyleConstants::RESET_BTN_OFFSET_RIGHT);
+    LONG resetRight = static_cast<LONG>(resetLeft + ViewerControllerStyleConstants::RESET_BTN_WIDTH);
+    RECT resetRect = {resetLeft, static_cast<LONG>(ViewerControllerStyleConstants::BTN_TOP_Y), resetRight,
+                      static_cast<LONG>(ViewerControllerStyleConstants::BTN_BOTTOM_Y)};
+
+    LONG closeLeft = static_cast<LONG>(screenWidth - ViewerControllerStyleConstants::CLOSE_BTN_OFFSET_RIGHT);
+    LONG closeRight = static_cast<LONG>(closeLeft + ViewerControllerStyleConstants::CLOSE_BTN_WIDTH);
+    RECT closeRect = {closeLeft, static_cast<LONG>(ViewerControllerStyleConstants::BTN_TOP_Y), closeRight,
+                      static_cast<LONG>(ViewerControllerStyleConstants::BTN_BOTTOM_Y)};
 
     Vector4 resetCol =
         uiController.IsDiceCheckResetHovered() ? Vector4(0.8f, 0.8f, 0.2f, 0.9f) : Vector4(0.4f, 0.4f, 0.4f, 0.8f);
@@ -139,13 +152,11 @@ void DiceViewerController::Render(ID3D11DeviceContext* context, CommonStates& st
     DrawBox(closeRect, closeCol);
     m_colorPrimitiveBatch->End();
 
-    // 説明テキスト描画[cite: 56]
     debugRenderer.DrawText({30.0f, 30.0f}, DirectX::Colors::White, L"【ダイスチェックモード】");
     debugRenderer.DrawText({30.0f, 60.0f}, DirectX::Colors::White, L"ドラッグ: 自由回転 | ホイール: 拡大・縮小");
-    debugRenderer.DrawText({static_cast<float>(screenWidth - 250), 40.0f}, DirectX::Colors::White, L"リセット");
-    debugRenderer.DrawText({static_cast<float>(screenWidth - 100), 40.0f}, DirectX::Colors::White, L"閉じる");
+    debugRenderer.DrawText({static_cast<float>(screenWidth - 250.0f), 40.0f}, DirectX::Colors::White, L"リセット");
+    debugRenderer.DrawText({static_cast<float>(screenWidth - 100.0f), 40.0f}, DirectX::Colors::White, L"閉じる");
 
-    // 3Dダイスモデル描画
     context->OMSetDepthStencilState(states.DepthDefault(), 0);
 
     Matrix viewerView = m_diceViewer.GetViewMatrix();

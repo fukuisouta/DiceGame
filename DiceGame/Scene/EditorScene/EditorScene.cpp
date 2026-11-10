@@ -12,23 +12,50 @@
 using namespace DirectX;
 using namespace DirectX::SimpleMath;
 
+// エディタ表示スタイル定数定義
+namespace EditorStyleConstants
+{
+    constexpr float RIGHT_PANEL_WIDTH = 320.0f;    // 右側パラメータドッキングパネルの横幅
+    constexpr float TOP_TOOLBAR_HEIGHT = 38.0f;    // 上部モード切替ツールバーの高さ
+    constexpr float RIGHT_PANEL_TOP_RATIO = 0.45f; // 右上Transform表示パネルの高さ割合
+
+    constexpr float DEFAULT_2D_SCALE_X = 3.0f; // 画像ドロップ時の2Dオブジェクト初期Xスケール
+    constexpr float DEFAULT_2D_SCALE_Y = 1.5f; // 画像ドロップ時の2Dオブジェクト初期Yスケール
+    constexpr float DEFAULT_2D_SCALE_Z = 0.2f; // 画像ドロップ時の2Dオブジェクト初期Zスケール
+    constexpr float SKY_MODEL_SCALE = 100.0f;  // スカイモデルドロップ時の初期スケール
+
+    constexpr float CAM_RESET_2D_POS_Z = -10.0f; // 2Dモード時のカメラリセットZ位置
+    constexpr float CAM_RESET_3D_POS_Y = 22.0f;  // 3Dモード時のカメラリセットY位置
+    constexpr float CAM_RESET_3D_POS_Z = -20.0f; // 3Dモード時のカメラリセットZ位置
+
+    constexpr float DRAG_POS_SPEED = 0.1f;    // ImGuiドラッグ操作による位置変更感度
+    constexpr float DRAG_ROT_SPEED = 1.0f;    // ImGuiドラッグ操作による回転変更感度
+    constexpr float DRAG_SCALE_SPEED = 0.05f; // ImGuiドラッグ操作によるスケール変更感度
+
+    constexpr float NDC_CENTER = 1.0f;          // 正規化デバイス座標変換係数
+    constexpr float SCREEN_CENTER_RATIO = 0.5f; // スクリーン中心倍率
+}
+
 namespace
 {
-    // 3D空間上のAABB（軸平行境界ボックス）をスクリーン上の2D矩形（RECT）へ変換射影する関数
+    // 3D空間上のAABB（軸平行境界ボックス）をスクリーン上の2D矩形（RECT）へ射影変換する関数
     RECT ProjectAABBToScreen(const Vector3& minBounds, const Vector3& maxBounds, const Matrix& view, const Matrix& proj,
                              float screenWidth, float screenHeight)
     {
-        Vector3 corners[8] = {
+        // 8つの頂点座標を定義
+        const Vector3 corners[8] = {
             Vector3(minBounds.x, minBounds.y, minBounds.z), Vector3(maxBounds.x, minBounds.y, minBounds.z),
             Vector3(minBounds.x, maxBounds.y, minBounds.z), Vector3(maxBounds.x, maxBounds.y, minBounds.z),
             Vector3(minBounds.x, minBounds.y, maxBounds.z), Vector3(maxBounds.x, maxBounds.y, maxBounds.z),
             Vector3(minBounds.x, maxBounds.y, maxBounds.z), Vector3(maxBounds.x, maxBounds.y, maxBounds.z),
         };
 
-        float minX = screenWidth, minY = screenHeight;
-        float maxX = 0.0f, maxY = 0.0f;
+        float minX = screenWidth;
+        float minY = screenHeight;
+        float maxX = 0.0f;
+        float maxY = 0.0f;
 
-        Matrix viewProj = view * proj;
+        const Matrix viewProj = view * proj;
 
         for (int i = 0; i < 8; ++i)
         {
@@ -38,8 +65,10 @@ namespace
                 float ndcX = clip.x / clip.w;
                 float ndcY = clip.y / clip.w;
 
-                float screenX = (ndcX + 1.0f) * 0.5f * screenWidth;
-                float screenY = (1.0f - ndcY) * 0.5f * screenHeight;
+                float screenX =
+                    (ndcX + EditorStyleConstants::NDC_CENTER) * EditorStyleConstants::SCREEN_CENTER_RATIO * screenWidth;
+                float screenY = (EditorStyleConstants::NDC_CENTER - ndcY) * EditorStyleConstants::SCREEN_CENTER_RATIO *
+                                screenHeight;
 
                 minX = (std::min)(minX, screenX);
                 maxX = (std::max)(maxX, screenX);
@@ -58,7 +87,8 @@ void EditorScene::OnEnter(GameContext& gameContext)
     ID3D11Device* device = gameContext.deviceResources.GetD3DDevice();
     ID3D11DeviceContext* context = gameContext.deviceResources.GetD3DDeviceContext();
 
-    m_field.Initialize(device, context, m_gameLogic.GetBoardWidth(), m_gameLogic.GetBoardHeight(), 2.0f);
+    m_field.Initialize(device, context, m_gameLogic.GetBoardWidth(), m_gameLogic.GetBoardHeight(),
+                       EditorConstants::DEFAULT_GRID_CELL_SIZE);
     m_gameLogic.Initialize(device, context);
 
     m_field.SetFloorColor(gameContext.floorColor);
@@ -75,24 +105,25 @@ void EditorScene::OnEnter(GameContext& gameContext)
     m_effect->SetVertexColorEnabled(false);
     m_effect->SetLightingEnabled(false);
 
-    void const* shaderByteCode;
-    size_t byteCodeLength;
+    void const* shaderByteCode = nullptr;
+    size_t byteCodeLength = 0;
     m_effect->GetVertexShaderBytecode(&shaderByteCode, &byteCodeLength);
     device->CreateInputLayout(VertexPositionNormalTexture::InputElements,
                               VertexPositionNormalTexture::InputElementCount, shaderByteCode, byteCodeLength,
                               m_inputLayout.ReleaseAndGetAddressOf());
 
-    // 初期レイアウトデータの読み込み
     LoadSceneFromJson(gameContext, m_currentFilePath);
 }
 
 // 2Dスプライト用四角形（板ポリゴン）の描画
 void EditorScene::DrawQuadWithPrimitiveBatch(ID3D11DeviceContext* context)
 {
-    VertexPositionNormalTexture v1(XMFLOAT3(-0.5f, 0.5f, 0.0f), XMFLOAT3(0, 0, -1), XMFLOAT2(0.0f, 0.0f));
-    VertexPositionNormalTexture v2(XMFLOAT3(0.5f, 0.5f, 0.0f), XMFLOAT3(0, 0, -1), XMFLOAT2(1.0f, 0.0f));
-    VertexPositionNormalTexture v3(XMFLOAT3(-0.5f, -0.5f, 0.0f), XMFLOAT3(0, 0, -1), XMFLOAT2(0.0f, 1.0f));
-    VertexPositionNormalTexture v4(XMFLOAT3(0.5f, -0.5f, 0.0f), XMFLOAT3(0, 0, -1), XMFLOAT2(1.0f, 1.0f));
+    (void)context;
+
+    const VertexPositionNormalTexture v1(XMFLOAT3(-0.5f, 0.5f, 0.0f), XMFLOAT3(0, 0, -1), XMFLOAT2(0.0f, 0.0f));
+    const VertexPositionNormalTexture v2(XMFLOAT3(0.5f, 0.5f, 0.0f), XMFLOAT3(0, 0, -1), XMFLOAT2(1.0f, 0.0f));
+    const VertexPositionNormalTexture v3(XMFLOAT3(-0.5f, -0.5f, 0.0f), XMFLOAT3(0, 0, -1), XMFLOAT2(0.0f, 1.0f));
+    const VertexPositionNormalTexture v4(XMFLOAT3(0.5f, -0.5f, 0.0f), XMFLOAT3(0, 0, -1), XMFLOAT2(1.0f, 1.0f));
 
     m_primitiveBatch->Begin();
     m_primitiveBatch->DrawTriangle(v1, v2, v3);
@@ -100,7 +131,7 @@ void EditorScene::DrawQuadWithPrimitiveBatch(ID3D11DeviceContext* context)
     m_primitiveBatch->End();
 }
 
-// 指定したテクスチャのロードおよびキャッシュ管理
+// テクスチャロードおよびキャッシュ取得
 Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> EditorScene::GetOrLoadTexture(ID3D11Device* device,
                                                                                const std::string& texName)
 {
@@ -140,7 +171,7 @@ void EditorScene::CopySelectedObject()
     }
 }
 
-// 保持しているクリップボードオブジェクトの貼り付け
+// クリップボードデータの貼り付け
 void EditorScene::PasteObject()
 {
     if (!m_hasClipboard)
@@ -149,8 +180,8 @@ void EditorScene::PasteObject()
     PlacedObject newObj = m_clipboardObject;
     newObj.name = newObj.cmoFileName + "_" + std::to_string(m_placedObjects.size() + 1);
 
-    newObj.position.x += 0.5f;
-    newObj.position.y -= 0.5f;
+    newObj.position.x += EditorConstants::DUP_OFFSET_X;
+    newObj.position.y += EditorConstants::DUP_OFFSET_Y;
 
     m_placedObjects.push_back(newObj);
     m_selectedIndex = static_cast<int>(m_placedObjects.size()) - 1;
@@ -163,15 +194,15 @@ void EditorScene::DuplicateObject(int index)
     {
         PlacedObject newObj = m_placedObjects[index];
         newObj.name = newObj.cmoFileName + "_" + std::to_string(m_placedObjects.size() + 1);
-        newObj.position.x += 0.5f;
-        newObj.position.y -= 0.5f;
+        newObj.position.x += EditorConstants::DUP_OFFSET_X;
+        newObj.position.y += EditorConstants::DUP_OFFSET_Y;
 
         m_placedObjects.push_back(newObj);
         m_selectedIndex = static_cast<int>(m_placedObjects.size()) - 1;
     }
 }
 
-// 毎フレームのロジック・入力更新処理
+// 毎フレームの更新処理
 void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, GameContext& gameContext)
 {
     float dt = static_cast<float>(gameContext.timer.GetElapsedSeconds());
@@ -179,7 +210,6 @@ void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
     m_field.Update(dt);
     m_gameLogic.Update(dt);
 
-    // 本編ゲームシーンへの遷移
     if (m_transitionToPlayScene)
     {
         SceneId targetScene = (gameContext.selectedMode == GameMode::Advance) ? SceneId::AdvanceGamePlayScene
@@ -189,7 +219,6 @@ void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
         return;
     }
 
-    // ドラッグ＆ドロップファイルの自動読み込み処理
     if (!gameContext.droppedFilePath.empty())
     {
         OnFileDropped(gameContext, gameContext.droppedFilePath);
@@ -198,11 +227,9 @@ void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
 
     ImGuiIO& io = ImGui::GetIO();
     ImGuiViewport* viewport = ImGui::GetMainViewport();
-    float rightPanelWidth = 320.0f;
-    float viewWidth = (std::max)(1.0f, viewport->WorkSize.x - rightPanelWidth);
+    float viewWidth = (std::max)(1.0f, viewport->WorkSize.x - EditorStyleConstants::RIGHT_PANEL_WIDTH);
     float viewHeight = viewport->WorkSize.y;
 
-    // ── キーボードショートカット (Ctrl+C, Ctrl+V, Ctrl+D) ──
     if (!io.WantCaptureKeyboard)
     {
         bool ctrlPressed = io.KeyCtrl;
@@ -218,8 +245,7 @@ void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
         }
     }
 
-    // ── プレビュー（Play Mode）実行中の動作テスト ──
-    if (m_isPlaying && m_editorMode == 1)
+    if (m_isPlaying && m_editorMode == EditorConstants::MODE_SCENE_OBJECTS)
     {
         for (const auto& obj : m_placedObjects)
         {
@@ -228,14 +254,14 @@ void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
 
             if (obj.tag == "StartButton" || nameLower.find("start") != std::string::npos)
             {
-                Vector3 minB = obj.position - (obj.scale * 0.5f);
-                Vector3 maxB = obj.position + (obj.scale * 0.5f);
+                Vector3 minB = obj.position - (obj.scale * EditorConstants::AABB_HALF_SCALE);
+                Vector3 maxB = obj.position + (obj.scale * EditorConstants::AABB_HALF_SCALE);
                 m_startBtnRect = ProjectAABBToScreen(minB, maxB, m_view, m_projection, viewWidth, viewHeight);
             }
             else if (obj.tag == "ExitButton" || nameLower.find("exit") != std::string::npos)
             {
-                Vector3 minB = obj.position - (obj.scale * 0.5f);
-                Vector3 maxB = obj.position + (obj.scale * 0.5f);
+                Vector3 minB = obj.position - (obj.scale * EditorConstants::AABB_HALF_SCALE);
+                Vector3 maxB = obj.position + (obj.scale * EditorConstants::AABB_HALF_SCALE);
                 m_exitBtnRect = ProjectAABBToScreen(minB, maxB, m_view, m_projection, viewWidth, viewHeight);
             }
         }
@@ -260,12 +286,13 @@ void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
         return;
     }
 
-    // ── エディターカメラ操作（右ドラッグ回転・WASD移動） ──
     if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
     {
         m_cameraYaw += io.MouseDelta.x * m_cameraRotateSpeed;
         m_cameraPitch += io.MouseDelta.y * m_cameraRotateSpeed;
-        m_cameraPitch = std::clamp(m_cameraPitch, -XM_PIDIV2 + 0.1f, XM_PIDIV2 - 0.1f);
+
+        constexpr float pitchLimit = XM_PIDIV2 - EditorConstants::CAMERA_PITCH_LIMIT_MARGIN;
+        m_cameraPitch = std::clamp(m_cameraPitch, -pitchLimit, pitchLimit);
     }
 
     Matrix camRot = Matrix::CreateRotationX(m_cameraPitch) * Matrix::CreateRotationY(m_cameraYaw);
@@ -277,7 +304,7 @@ void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
     {
         float speed = m_cameraMoveSpeed * dt;
         if (io.KeyShift)
-            speed *= 2.5f;
+            speed *= EditorConstants::FAST_CAMERA_MOVE_SPEED_SCALE;
 
         auto kb = Keyboard::Get().GetState();
         if (kb.IsKeyDown(Keyboard::Keys::W))
@@ -296,21 +323,21 @@ void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
 
     if (!io.WantCaptureMouse && io.MouseWheel != 0.0f)
     {
-        m_cameraPos += forward * (io.MouseWheel * 2.0f);
+        m_cameraPos += forward * (io.MouseWheel * EditorConstants::MOUSE_WHEEL_ZOOM_SCALE);
     }
 
-    // [F]キーによるカメラ位置リセット
     if (ImGui::IsKeyPressed(ImGuiKey_F))
     {
-        if (m_editorMode == 1)
+        if (m_editorMode == EditorConstants::MODE_SCENE_OBJECTS)
         {
-            m_cameraPos = Vector3(0.0f, 0.0f, -10.0f);
+            m_cameraPos = Vector3(0.0f, 0.0f, EditorStyleConstants::CAM_RESET_2D_POS_Z);
             m_cameraYaw = 0.0f;
             m_cameraPitch = 0.0f;
         }
         else
         {
-            m_cameraPos = Vector3(0.0f, 22.0f, -20.0f);
+            m_cameraPos =
+                Vector3(0.0f, EditorStyleConstants::CAM_RESET_3D_POS_Y, EditorStyleConstants::CAM_RESET_3D_POS_Z);
             Vector3 dir = Vector3::Zero - m_cameraPos;
             dir.Normalize();
             m_cameraYaw = std::atan2(dir.x, dir.z);
@@ -318,12 +345,11 @@ void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
         }
     }
 
-    // マウスクリック（ピッキング）による3D/2Dオブジェクト選択
-    if (m_editorMode == 1 && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !io.WantCaptureMouse)
+    if (m_editorMode == EditorConstants::MODE_SCENE_OBJECTS && ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+        !io.WantCaptureMouse)
     {
         Vector2 mousePos(io.MousePos.x, io.MousePos.y);
 
-        // 左側のメイン表示ビューポート内のみを対象に判定
         if (mousePos.x <= viewWidth)
         {
             float x = (2.0f * mousePos.x) / viewWidth - 1.0f;
@@ -345,8 +371,8 @@ void EditorScene::Update(Imase::ISceneController<SceneId>& sceneController, Game
             for (size_t i = 0; i < m_placedObjects.size(); ++i)
             {
                 const auto& obj = m_placedObjects[i];
-                Vector3 minBounds = obj.position - (obj.scale * 0.5f);
-                Vector3 maxBounds = obj.position + (obj.scale * 0.5f);
+                Vector3 minBounds = obj.position - (obj.scale * EditorConstants::AABB_HALF_SCALE);
+                Vector3 maxBounds = obj.position + (obj.scale * EditorConstants::AABB_HALF_SCALE);
 
                 float t = 0.0f;
                 if (RayIntersectsAABB(rayOrigin, rayDir, minBounds, maxBounds, t))
@@ -376,13 +402,11 @@ void EditorScene::Render(GameContext& gameContext)
 
     ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImVec2 workSize = ImVec2(viewport->WorkSize.x, viewport->WorkSize.y);
-    float rightPanelWidth = 320.0f;
 
-    float viewWidth = (std::max)(1.0f, workSize.x - rightPanelWidth);
+    float viewWidth = (std::max)(1.0f, workSize.x - EditorStyleConstants::RIGHT_PANEL_WIDTH);
     float viewHeight = workSize.y;
     float aspectRatio = viewWidth / viewHeight;
 
-    // ビューポートを ImGui の左側描画領域にピッタリ適用
     D3D11_VIEWPORT vp = {};
     vp.TopLeftX = 0.0f;
     vp.TopLeftY = viewport->WorkPos.y;
@@ -400,14 +424,12 @@ void EditorScene::Render(GameContext& gameContext)
                        Matrix::CreateRotationZ(XMConvertToRadians(m_sceneRootRotation.z)) *
                        Matrix::CreateTranslation(m_sceneRootPosition);
 
-    // ==========================================
-    // レイヤー 1: 3Dワールド空間モデルの描画（透視投影 Perspective）
-    // ==========================================
     Matrix perspectiveView = Matrix::CreateLookAt(m_cameraPos, m_cameraPos + forward, Vector3::Up);
     Matrix perspectiveProj =
-        Matrix::CreatePerspectiveFieldOfView(XMConvertToRadians(45.0f), aspectRatio, 0.1f, 1000.0f);
+        Matrix::CreatePerspectiveFieldOfView(XMConvertToRadians(EditorConstants::FOV_ANGLE_Y), aspectRatio,
+                                             EditorConstants::NEAR_PLANE, EditorConstants::FAR_PLANE);
 
-    if (m_editorMode == 0)
+    if (m_editorMode == EditorConstants::MODE_GRID)
     {
         m_field.Render(context, gameContext.commonStates, perspectiveView, perspectiveProj, -1, -1, -1, -1);
         m_gameLogic.Render(context, gameContext.commonStates, perspectiveView, perspectiveProj);
@@ -465,19 +487,16 @@ void EditorScene::Render(GameContext& gameContext)
         obj.model->Draw(context, gameContext.commonStates, finalWorld, perspectiveView, perspectiveProj);
     }
 
-    // ==========================================
-    // レイヤー 2: 2D UIキャンバスの描画（平行投影 Orthographic）
-    // 3D要素の上面へ深度クリアを行ってオーバーレイ描画します
-    // ==========================================
     context->ClearDepthStencilView(gameContext.deviceResources.GetDepthStencilView(), D3D11_CLEAR_DEPTH, 1.0f, 0);
 
     Matrix orthoView = Matrix::CreateLookAt(Vector3(0.0f, 0.0f, -10.0f), Vector3::Zero, Vector3::Up);
-    float orthoHeight = 10.0f;
+    float orthoHeight = EditorConstants::ORTHO_HEIGHT;
     float orthoWidth = orthoHeight * aspectRatio;
-    Matrix orthoProj = Matrix::CreateOrthographic(orthoWidth, orthoHeight, 0.1f, 1000.0f);
+    Matrix orthoProj =
+        Matrix::CreateOrthographic(orthoWidth, orthoHeight, EditorConstants::NEAR_PLANE, EditorConstants::FAR_PLANE);
 
-    m_view = (m_editorMode == 1) ? orthoView : perspectiveView;
-    m_projection = (m_editorMode == 1) ? orthoProj : perspectiveProj;
+    m_view = (m_editorMode == EditorConstants::MODE_SCENE_OBJECTS) ? orthoView : perspectiveView;
+    m_projection = (m_editorMode == EditorConstants::MODE_SCENE_OBJECTS) ? orthoProj : perspectiveProj;
 
     context->OMSetBlendState(gameContext.commonStates.AlphaBlend(), nullptr, 0xFFFFFFFF);
     context->RSSetState(gameContext.commonStates.CullNone());
@@ -505,7 +524,6 @@ void EditorScene::Render(GameContext& gameContext)
             m_effect->SetView(orthoView);
             m_effect->SetProjection(orthoProj);
 
-            // 選択状態およびホバー状態によるハイライト色の適用
             if (m_isPlaying &&
                 ((obj.tag == "StartButton" && m_isStartHovered) || (obj.tag == "ExitButton" && m_isExitHovered)))
             {
@@ -527,7 +545,6 @@ void EditorScene::Render(GameContext& gameContext)
         }
     }
 
-    // ビューポートを全画面に戻して ImGui パネルを描画
     D3D11_VIEWPORT fullVp = {};
     fullVp.TopLeftX = 0.0f;
     fullVp.TopLeftY = 0.0f;
@@ -541,7 +558,6 @@ void EditorScene::Render(GameContext& gameContext)
     context->OMSetDepthStencilState(gameContext.commonStates.DepthDefault(), 0);
     context->RSSetState(gameContext.commonStates.CullCounterClockwise());
 
-    // ── ImGui エディターGUI描画 ──
     if (ImGui::BeginMainMenuBar())
     {
         if (ImGui::BeginMenu("File"))
@@ -569,24 +585,22 @@ void EditorScene::Render(GameContext& gameContext)
     }
 
     ImVec2 workPos = ImVec2(viewport->WorkPos.x, viewport->WorkPos.y);
-    float topToolbarHeight = 38.0f;
-    float leftAreaWidth = workSize.x - rightPanelWidth;
+    float leftAreaWidth = workSize.x - EditorStyleConstants::RIGHT_PANEL_WIDTH;
 
-    // 上部ツールバー
     ImGui::SetNextWindowPos(workPos);
-    ImGui::SetNextWindowSize(ImVec2(leftAreaWidth, topToolbarHeight));
+    ImGui::SetNextWindowSize(ImVec2(leftAreaWidth, EditorStyleConstants::TOP_TOOLBAR_HEIGHT));
     ImGuiWindowFlags toolbarFlags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
                                     ImGuiWindowFlags_NoScrollbar;
 
     ImGui::Begin("##TopToolbar", nullptr, toolbarFlags);
     {
-        bool isGridMode = (m_editorMode == 0);
-        bool isObjMode = (m_editorMode == 1);
+        bool isGridMode = (m_editorMode == EditorConstants::MODE_GRID);
+        bool isObjMode = (m_editorMode == EditorConstants::MODE_SCENE_OBJECTS);
 
         if (isGridMode)
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.2f, 1.0f));
         if (ImGui::Button("Grid Mode"))
-            m_editorMode = 0;
+            m_editorMode = EditorConstants::MODE_GRID;
         if (isGridMode)
             ImGui::PopStyleColor();
 
@@ -595,7 +609,7 @@ void EditorScene::Render(GameContext& gameContext)
         if (isObjMode)
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.2f, 1.0f));
         if (ImGui::Button("Scene Objects Mode"))
-            m_editorMode = 1;
+            m_editorMode = EditorConstants::MODE_SCENE_OBJECTS;
         if (isObjMode)
             ImGui::PopStyleColor();
 
@@ -625,14 +639,13 @@ void EditorScene::Render(GameContext& gameContext)
     }
     ImGui::End();
 
-    // 右側パラメータ調整パネル（Info）
-    float rightPanelHeightTop = workSize.y * 0.45f;
+    float rightPanelHeightTop = workSize.y * EditorStyleConstants::RIGHT_PANEL_TOP_RATIO;
     ImGui::SetNextWindowPos(ImVec2(workPos.x + leftAreaWidth, workPos.y));
-    ImGui::SetNextWindowSize(ImVec2(rightPanelWidth, rightPanelHeightTop));
+    ImGui::SetNextWindowSize(ImVec2(EditorStyleConstants::RIGHT_PANEL_WIDTH, rightPanelHeightTop));
 
     ImGui::Begin("Info", nullptr, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
     {
-        if (m_editorMode == 1)
+        if (m_editorMode == EditorConstants::MODE_SCENE_OBJECTS)
         {
             if (m_selectedIndex >= 0 && m_selectedIndex < static_cast<int>(m_placedObjects.size()))
             {
@@ -650,7 +663,7 @@ void EditorScene::Render(GameContext& gameContext)
                     ImGui::TableSetColumnIndex(0);
                     ImGui::Text("Tag");
                     ImGui::TableSetColumnIndex(1);
-                    char tagBuf[64];
+                    char tagBuf[EditorConstants::TAG_BUFFER_SIZE];
                     strcpy_s(tagBuf, selObj.tag.c_str());
                     if (ImGui::InputText("##Tag", tagBuf, sizeof(tagBuf)))
                         selObj.tag = tagBuf;
@@ -659,25 +672,25 @@ void EditorScene::Render(GameContext& gameContext)
                     ImGui::TableSetColumnIndex(0);
                     ImGui::Text("Position");
                     ImGui::TableSetColumnIndex(1);
-                    ImGui::DragFloat3("##Pos", &selObj.position.x, 0.1f);
+                    ImGui::DragFloat3("##Pos", &selObj.position.x, EditorStyleConstants::DRAG_POS_SPEED);
 
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0);
                     ImGui::Text("Rotation");
                     ImGui::TableSetColumnIndex(1);
-                    ImGui::DragFloat3("##Rot", &selObj.rotation.x, 1.0f);
+                    ImGui::DragFloat3("##Rot", &selObj.rotation.x, EditorStyleConstants::DRAG_ROT_SPEED);
 
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0);
                     ImGui::Text("Scale");
                     ImGui::TableSetColumnIndex(1);
-                    ImGui::DragFloat3("##Scale", &selObj.scale.x, 0.05f);
+                    ImGui::DragFloat3("##Scale", &selObj.scale.x, EditorStyleConstants::DRAG_SCALE_SPEED);
 
                     ImGui::EndTable();
                 }
 
                 ImGui::Spacing();
-                if (ImGui::Button("Deselect", ImVec2(-1, 0)))
+                if (ImGui::Button("Deselect", ImVec2(-1.0f, 0.0f)))
                     m_selectedIndex = -1;
             }
             else
@@ -698,31 +711,30 @@ void EditorScene::Render(GameContext& gameContext)
     }
     ImGui::End();
 
-    // 右下プロジェクト・ヒエラルキービュー
     float rightPanelHeightBottom = workSize.y - rightPanelHeightTop;
     ImGui::SetNextWindowPos(ImVec2(workPos.x + leftAreaWidth, workPos.y + rightPanelHeightTop));
-    ImGui::SetNextWindowSize(ImVec2(rightPanelWidth, rightPanelHeightBottom));
+    ImGui::SetNextWindowSize(ImVec2(EditorStyleConstants::RIGHT_PANEL_WIDTH, rightPanelHeightBottom));
 
     ImGui::Begin("Project View", nullptr,
                  ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove);
     {
         if (ImGui::BeginTabBar("ProjectTabs"))
         {
-            if (m_editorMode == 1)
+            if (m_editorMode == EditorConstants::MODE_SCENE_OBJECTS)
             {
                 if (ImGui::BeginTabItem("Hierarchy"))
                 {
                     ImGui::TextDisabled("Drop .cmo / .png / .jpg into window to add");
                     ImGui::Separator();
 
-                    if (ImGui::Button("Clear All Objects", ImVec2(-1, 0)))
+                    if (ImGui::Button("Clear All Objects", ImVec2(-1.0f, 0.0f)))
                     {
                         m_placedObjects.clear();
                         m_selectedIndex = -1;
                     }
 
                     ImGui::Separator();
-                    ImGui::BeginChild("ListRegion", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
+                    ImGui::BeginChild("ListRegion", ImVec2(0.0f, 0.0f), false, ImGuiWindowFlags_HorizontalScrollbar);
 
                     if (ImGui::BeginPopupContextWindow("HierarchyContextMenu", ImGuiPopupFlags_MouseButtonRight |
                                                                                    ImGuiPopupFlags_NoOpenOverItems))
@@ -779,7 +791,7 @@ void EditorScene::Render(GameContext& gameContext)
                 ImGui::TextDisabled("Double-click .json to load & edit");
                 ImGui::Separator();
 
-                ImGui::BeginChild("SceneListRegion", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
+                ImGui::BeginChild("SceneListRegion", ImVec2(0.0f, 0.0f), false, ImGuiWindowFlags_HorizontalScrollbar);
 
                 std::string sceneDir = "Resources/Data";
                 if (std::filesystem::exists(sceneDir))
@@ -817,7 +829,7 @@ void EditorScene::Render(GameContext& gameContext)
     ImGui::End();
 }
 
-// JSONファイルからのシーンデータデシリアライズ読み込み
+// JSONファイルからのシーンデータ読み込み
 void EditorScene::LoadSceneFromJson(GameContext& gameContext, const std::string& filePath)
 {
     SceneData loadedData;
@@ -829,15 +841,15 @@ void EditorScene::LoadSceneFromJson(GameContext& gameContext, const std::string&
     if (filePath.find("title_scene.json") != std::string::npos ||
         filePath.find("select_scene.json") != std::string::npos)
     {
-        m_editorMode = 1;
-        m_cameraPos = Vector3(0.0f, 0.0f, -10.0f);
+        m_editorMode = EditorConstants::MODE_SCENE_OBJECTS;
+        m_cameraPos = Vector3(0.0f, 0.0f, EditorStyleConstants::CAM_RESET_2D_POS_Z);
         m_cameraYaw = 0.0f;
         m_cameraPitch = 0.0f;
     }
     else
     {
-        m_editorMode = 0;
-        m_cameraPos = Vector3(0.0f, 22.0f, -20.0f);
+        m_editorMode = EditorConstants::MODE_GRID;
+        m_cameraPos = Vector3(0.0f, EditorStyleConstants::CAM_RESET_3D_POS_Y, EditorStyleConstants::CAM_RESET_3D_POS_Z);
         Vector3 dir = Vector3::Zero - m_cameraPos;
         dir.Normalize();
         m_cameraYaw = std::atan2(dir.x, dir.z);
@@ -874,7 +886,7 @@ void EditorScene::LoadSceneFromJson(GameContext& gameContext, const std::string&
     }
 }
 
-// JSONファイルへのシーンデータシリアライズ保存
+// JSONファイルへのシーンデータ保存
 void EditorScene::SaveSceneToJson(const std::string& filePath)
 {
     SceneData saveData;
@@ -900,14 +912,12 @@ void EditorScene::OnFileDropped(GameContext& gameContext, const std::wstring& fu
 
     auto device = gameContext.deviceResources.GetD3DDevice();
 
-    // .json ファイルドロップ時の読み込み
     if (ext == ".json")
     {
         LoadSceneFromJson(gameContext, path.string());
         return;
     }
 
-    // 2D画像ファイルドロップ時のUI用オブジェクト生成
     if (ext == ".png" || ext == ".jpg" || ext == ".jpeg")
     {
         PlacedObject newObj;
@@ -926,14 +936,14 @@ void EditorScene::OnFileDropped(GameContext& gameContext, const std::wstring& fu
 
         newObj.position = Vector3(0.0f, 0.0f, 0.0f);
         newObj.rotation = Vector3(0.0f, 0.0f, 0.0f);
-        newObj.scale = Vector3(3.0f, 1.5f, 0.2f);
+        newObj.scale = Vector3(EditorStyleConstants::DEFAULT_2D_SCALE_X, EditorStyleConstants::DEFAULT_2D_SCALE_Y,
+                               EditorStyleConstants::DEFAULT_2D_SCALE_Z);
 
         m_placedObjects.push_back(newObj);
         m_selectedIndex = static_cast<int>(m_placedObjects.size()) - 1;
         return;
     }
 
-    // 3Dモデルファイルドロップ時の配置オブジェクト生成
     if (ext == ".cmo")
     {
         try
@@ -947,7 +957,8 @@ void EditorScene::OnFileDropped(GameContext& gameContext, const std::wstring& fu
             if (lowerFileName.find("sky") != std::string::npos)
             {
                 newObj.tag = "Sky";
-                newObj.scale = Vector3(100.0f, 100.0f, 100.0f);
+                newObj.scale = Vector3(EditorStyleConstants::SKY_MODEL_SCALE, EditorStyleConstants::SKY_MODEL_SCALE,
+                                       EditorStyleConstants::SKY_MODEL_SCALE);
             }
             else
             {
@@ -968,18 +979,22 @@ void EditorScene::OnFileDropped(GameContext& gameContext, const std::wstring& fu
     }
 }
 
-// 視線レイ（Ray）とAABB境界ボックスとの交差判定アルゴリズム（Slab Method）
+// レイとAABBの交差判定処理 (Slab Method)
 bool EditorScene::RayIntersectsAABB(const Vector3& rayOrigin, const Vector3& rayDir, const Vector3& boxMin,
                                     const Vector3& boxMax, float& outT)
 {
-    float tmin = (boxMin.x - rayOrigin.x) / (std::abs(rayDir.x) < 0.0001f ? 0.0001f : rayDir.x);
-    float tmax = (boxMax.x - rayOrigin.x) / (std::abs(rayDir.x) < 0.0001f ? 0.0001f : rayDir.x);
+    float tmin = (boxMin.x - rayOrigin.x) /
+                 (std::abs(rayDir.x) < EditorConstants::RAY_EPSILON ? EditorConstants::RAY_EPSILON : rayDir.x);
+    float tmax = (boxMax.x - rayOrigin.x) /
+                 (std::abs(rayDir.x) < EditorConstants::RAY_EPSILON ? EditorConstants::RAY_EPSILON : rayDir.x);
 
     if (tmin > tmax)
         std::swap(tmin, tmax);
 
-    float tymin = (boxMin.y - rayOrigin.y) / (std::abs(rayDir.y) < 0.0001f ? 0.0001f : rayDir.y);
-    float tymax = (boxMax.y - rayOrigin.y) / (std::abs(rayDir.y) < 0.0001f ? 0.0001f : rayDir.y);
+    float tymin = (boxMin.y - rayOrigin.y) /
+                  (std::abs(rayDir.y) < EditorConstants::RAY_EPSILON ? EditorConstants::RAY_EPSILON : rayDir.y);
+    float tymax = (boxMax.y - rayOrigin.y) /
+                  (std::abs(rayDir.y) < EditorConstants::RAY_EPSILON ? EditorConstants::RAY_EPSILON : rayDir.y);
 
     if (tymin > tymax)
         std::swap(tymin, tymax);
@@ -992,8 +1007,10 @@ bool EditorScene::RayIntersectsAABB(const Vector3& rayOrigin, const Vector3& ray
     if (tymax < tmax)
         tmax = tymax;
 
-    float tzmin = (boxMin.z - rayOrigin.z) / (std::abs(rayDir.z) < 0.0001f ? 0.0001f : rayDir.z);
-    float tzmax = (boxMax.z - rayOrigin.z) / (std::abs(rayDir.z) < 0.0001f ? 0.0001f : rayDir.z);
+    float tzmin = (boxMin.z - rayOrigin.z) /
+                  (std::abs(rayDir.z) < EditorConstants::RAY_EPSILON ? EditorConstants::RAY_EPSILON : rayDir.z);
+    float tzmax = (boxMax.z - rayOrigin.z) /
+                  (std::abs(rayDir.z) < EditorConstants::RAY_EPSILON ? EditorConstants::RAY_EPSILON : rayDir.z);
 
     if (tzmin > tzmax)
         std::swap(tzmin, tzmax);

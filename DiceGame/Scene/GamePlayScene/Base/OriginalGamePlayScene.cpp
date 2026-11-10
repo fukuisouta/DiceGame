@@ -4,12 +4,12 @@
 using namespace DirectX;
 using namespace DirectX::SimpleMath;
 
-// 接続モード（Host / Client）およびターン管理をもとに自分のターンか判定
+// 自分の手番判定
 bool OriginalGamePlayScene::IsMyTurn(GameContext& gameContext) const
 {
     if (!gameContext.networkManager.IsConnected())
     {
-        return true; // ローカル単体プレイ時は常時操作可能
+        return true;
     }
 
     PlayerType currentTurn = m_gameLogic.GetCurrentTurn();
@@ -25,7 +25,7 @@ bool OriginalGamePlayScene::IsMyTurn(GameContext& gameContext) const
     return false;
 }
 
-// オンライン対戦用コールバックの設定およびモード開始処理
+// モード進入時処理
 void OriginalGamePlayScene::OnModeEnter(GameContext& gameContext)
 {
     if (gameContext.networkManager.IsConnected())
@@ -40,7 +40,6 @@ void OriginalGamePlayScene::OnModeEnter(GameContext& gameContext)
         }
     }
 
-    // ダイス出目受信処理（通信相手の振った出目を反映）
     gameContext.networkManager.SetOnDiceResult(
         [this](int steps)
         {
@@ -49,7 +48,6 @@ void OriginalGamePlayScene::OnModeEnter(GameContext& gameContext)
             AddLog(L"あいてがダイスを振り【%d】が出ました", steps);
         });
 
-    // コマ移動パケット受信処理（PieceMovementController 経由で相手の移動を反映）
     gameContext.networkManager.SetOnMovePiece(
         [this, &gameContext](int fX, int fY, int tX, int tY)
         {
@@ -65,21 +63,20 @@ void OriginalGamePlayScene::OnModeEnter(GameContext& gameContext)
             }
         });
 
-    // クライアント側: ホストから送信されたワールド全体姿勢（3D座標・回転）の即時同期
     gameContext.networkManager.SetOnWorldSync([this](const MsgWorldSync& syncPkt)
                                               { m_gameLogic.ApplyWorldSyncFromHost(syncPkt); });
 }
 
-// 毎フレームのターン状態チェック・パケット同期送信
+// モード更新処理
 void OriginalGamePlayScene::OnModeUpdate(float dt, GameContext& gameContext)
 {
-    // クライアントで自分の手番でない場合は選択中のコマを強制解除
+    (void)dt;
+
     if (gameContext.networkManager.IsConnected() && !IsMyTurn(gameContext))
     {
         m_movementController.Reset();
     }
 
-    // ターン終了パケットの送信（自分の行動完了時）
     if (gameContext.networkManager.IsConnected() && IsMyTurn(gameContext))
     {
         if (m_movementController.HasMovedThisTurn() && m_gameLogic.GetRemainingSteps() <= 0 &&
@@ -94,7 +91,6 @@ void OriginalGamePlayScene::OnModeUpdate(float dt, GameContext& gameContext)
         }
     }
 
-    // ホスト側: 毎フレーム、ホスト上の全オブジェクト絶対姿勢を構築してクライアントへ一括同期送信
     if (gameContext.networkManager.IsConnected() && gameContext.networkManager.GetMode() == NetworkManager::Mode::Host)
     {
         MsgWorldSync syncPkt{};
@@ -103,13 +99,16 @@ void OriginalGamePlayScene::OnModeUpdate(float dt, GameContext& gameContext)
     }
 }
 
-// 相手のターン中のメッセージオーバーレイ描画
+// 2D描画処理
 void OriginalGamePlayScene::OnModeRender2D(ID3D11DeviceContext* context, float screenWidth, float screenHeight,
                                            GameContext& gameContext)
 {
+    (void)context;
+
     if (gameContext.networkManager.IsConnected() && !IsMyTurn(gameContext))
     {
-        gameContext.debugRenderer.DrawText({screenWidth * 0.5f - 110.0f, 20.0f},
+        gameContext.debugRenderer.DrawText({screenWidth * 0.5f - OriginalSceneConstants::THINKING_TEXT_POS_X_OFFSET,
+                                            OriginalSceneConstants::THINKING_TEXT_POS_Y},
                                            DirectX::SimpleMath::Vector4(1.0f, 0.8f, 0.2f, 1.0f),
                                            L"【あいての思考・操作中...】");
     }

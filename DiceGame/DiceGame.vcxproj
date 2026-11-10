@@ -189,6 +189,7 @@
     <ClInclude Include="Camera\SpringCamera.h" />
     <ClInclude Include="Common\DeviceResources.h" />
     <ClInclude Include="Dice\Dice.h" />
+    <ClInclude Include="Dice\KnockbackDice.h" />
     <ClInclude Include="DirectXTK_Utilities\DebugDraw.h" />
     <ClInclude Include="DQN\SimpleDQN.h" />
     <ClInclude Include="Framework\SoundManager.h" />
