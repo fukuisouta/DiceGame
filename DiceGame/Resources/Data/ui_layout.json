@@ -8,23 +8,23 @@
         "width": 200.0
     },
     "DiceCheck": {
-        "height": 126.0,
-        "marginX": -24.0,
+        "height": 129.3512725830078,
+        "marginX": 0.0,
         "marginY": 8.0,
         "relX": 0.0,
         "relY": 0.0,
         "width": 232.0
     },
     "Log": {
-        "height": 134.0,
-        "marginX": 14.0,
-        "marginY": 20.0,
+        "height": 220.0,
+        "marginX": 4.0,
+        "marginY": -46.0,
         "relX": 1.0,
         "relY": 0.0,
-        "width": 248.0
+        "width": 220.0
     },
     "RollDice": {
-        "height": 144.0,
+        "height": 150.92041015625,
         "marginX": -20.0,
         "marginY": -20.0,
         "relX": 1.0,

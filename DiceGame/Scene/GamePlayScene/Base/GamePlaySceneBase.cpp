@@ -248,6 +248,8 @@ void GamePlaySceneBase::OnEnter(GameContext& gameContext)
                 m_gameLogic.FinishAllPieceAnimations();
             }
 
+            int prevTurnCount = m_gameLogic.GetCurrentTurnCount();
+
             std::wstring noticeText;
             float noticeTimer = 0.0f;
             m_movementController.ExecuteMove(fX, fY, tX, tY, true, m_gameLogic, m_logManager, &gameContext, noticeText,
@@ -255,6 +257,14 @@ void GamePlaySceneBase::OnEnter(GameContext& gameContext)
             if (!noticeText.empty())
             {
                 m_turnManager.TriggerNotice(noticeText, noticeTimer);
+            }
+
+            int nowTurnCount = m_gameLogic.GetCurrentTurnCount();
+            if (nowTurnCount > prevTurnCount && !m_gameLogic.IsGameOver())
+            {
+                AddLog(L"【%d / %d手完了】陣地 青:%dマス vs 赤:%dマス", nowTurnCount, DiceBattleConstants::MAX_TURNS,
+                       m_gameLogic.GetPaintedTileCount(PlayerType::Player1),
+                       m_gameLogic.GetPaintedTileCount(PlayerType::Player2));
             }
 
             // ホスト(1P)は2Pの移動を確定させた直後に正本盤面（出目・位置）を2Pへ配信
@@ -279,9 +289,22 @@ void GamePlaySceneBase::OnEnter(GameContext& gameContext)
 
             if (m_gameLogic.GetCurrentTurn() != myPlayerType)
             {
+                int prevTurnCount = m_gameLogic.GetCurrentTurnCount();
                 m_gameLogic.ForceEndTurn();
                 ResetMoveState();
-                TriggerTurnNotice(L"YOUR TURN");
+
+                int nowTurnCount = m_gameLogic.GetCurrentTurnCount();
+                if (nowTurnCount > prevTurnCount && !m_gameLogic.IsGameOver())
+                {
+                    AddLog(L"【%d / %d手完了】陣地 青:%dマス vs 赤:%dマス", nowTurnCount,
+                           DiceBattleConstants::MAX_TURNS, m_gameLogic.GetPaintedTileCount(PlayerType::Player1),
+                           m_gameLogic.GetPaintedTileCount(PlayerType::Player2));
+                }
+
+                if (!m_gameLogic.IsGameOver())
+                {
+                    TriggerTurnNotice(L"YOUR TURN");
+                }
             }
 
             // ホスト(1P)はターン切り替え確定後に盤面・出目を2Pへ配信
@@ -339,16 +362,12 @@ void GamePlaySceneBase::StartFirstTurnRoll(GameContext& gameContext)
     m_p1FirstDice.SetEmissiveColor(Vector3::Zero);
     m_p2FirstDice.SetEmissiveColor(Vector3::Zero);
 
-   // 盤面中央の着地位置（駒に埋まらない高さ Y=2.2f）
+    // 盤面中央の着地位置（駒に埋まらない高さ Y=2.2f）
     m_p1FirstTargetPos = Vector3(-2.2f, 2.2f, 0.0f);
     m_p2FirstTargetPos = Vector3(2.2f, 2.2f, 0.0f);
 
     // 画面手前（左右斜め手前）から中央に向かって投げ込む開始位置
-    bool isPlayer2 =
-        (gameContext.networkManager.IsConnected() && gameContext.networkManager.GetAssignedPlayerType() == 2);
-  /*  float throwZ = isPlayer2 ? 9.5f : -9.5f;*/
-
- m_p1FirstStartPos = Vector3(-5.5f, 3.5f, -9.5f);
+    m_p1FirstStartPos = Vector3(-5.5f, 3.5f, -9.5f);
     m_p2FirstStartPos = Vector3(5.5f, 3.5f, 9.5f);
 
     m_p1FirstDice.SetPosition(m_p1FirstStartPos);
@@ -376,6 +395,7 @@ void GamePlaySceneBase::StartFirstTurnRoll(GameContext& gameContext)
         m_hasReceivedFirstResult = true;
     }
 }
+
 void GamePlaySceneBase::UpdateFirstTurnPhase(float dt, GameContext& gameContext)
 {
     bool isPlayer2 =
@@ -459,7 +479,7 @@ void GamePlaySceneBase::UpdateFirstTurnPhase(float dt, GameContext& gameContext)
 
             SoundManager::GetInstance().PlaySE(SEType::DiceRoll, DiceBattleConstants::DICE_SE_VOLUME_LAND);
 
-            // ★着地後、すぐ結果を出さずに0.6秒間の「タメ（緊張の間）」を作る
+            // 着地後、すぐ結果を出さずに0.6秒間の「タメ（緊張の間）」を作る
             m_firstRollTimer = 0.6f;
             m_firstTurnPhase = FirstTurnPhase::WaitingServer;
         }
@@ -494,7 +514,7 @@ void GamePlaySceneBase::UpdateFirstTurnPhase(float dt, GameContext& gameContext)
         // タメ終了 → スポットライト点灯＆勝敗発表！
         m_p1FirstDice.SetRotation(GetDiceFaceRotation(m_p1ResultRoll));
         m_p2FirstDice.SetRotation(GetDiceFaceRotation(m_p2ResultRoll));
-        m_firstRollTimer = 2.8f; // 結果表示も 2.0f → 2.8f に延長
+        m_firstRollTimer = 2.8f;
         m_firstTurnPhase = FirstTurnPhase::ShowingResult;
 
         if (m_decidedFirstPlayer == 1)
@@ -539,6 +559,7 @@ void GamePlaySceneBase::UpdateFirstTurnPhase(float dt, GameContext& gameContext)
         }
     }
 }
+
 void GamePlaySceneBase::RenderFirstTurnSpotlight(ID3D11DeviceContext* context, const DirectX::CommonStates& states,
                                                  const DirectX::SimpleMath::Matrix& view,
                                                  const DirectX::SimpleMath::Matrix& proj)
@@ -563,9 +584,7 @@ void GamePlaySceneBase::RenderFirstTurnSpotlight(ID3D11DeviceContext* context, c
     context->OMSetDepthStencilState(states.DepthNone(), 0);
     context->OMSetBlendState(states.AlphaBlend(), nullptr, 0xFFFFFFFF);
 
-    // -------------------------------------------------------
-    // 1. 画面全体（背景・台座・盤面・初期駒すべて）を2Dで一括暗転！
-    // -------------------------------------------------------
+    // 1. 画面全体（背景・台座・盤面・初期駒すべて）を2Dで一括暗転
     m_colorEffect->SetWorld(Matrix::Identity);
     m_colorEffect->SetView(Matrix::Identity);
     m_colorEffect->SetProjection(Matrix::CreateOrthographicOffCenter(-1.0f, 1.0f, -1.0f, 1.0f, 0.0f, 1.0f));
@@ -582,9 +601,7 @@ void GamePlaySceneBase::RenderFirstTurnSpotlight(ID3D11DeviceContext* context, c
     }
     m_colorPrimitiveBatch->End();
 
-    // -------------------------------------------------------
-    // 2. 勝敗確定後、勝った（先攻になった）方だけに3Dピンスポットライトを照射！
-    // -------------------------------------------------------
+    // 2. 勝敗確定後、勝った（先攻になった）方だけに3Dピンスポットライトを照射
     if (m_firstTurnPhase == FirstTurnPhase::ShowingResult && m_decidedFirstPlayer != 0)
     {
         m_colorEffect->SetWorld(Matrix::Identity);
@@ -641,6 +658,7 @@ void GamePlaySceneBase::RenderFirstTurnSpotlight(ID3D11DeviceContext* context, c
     context->OMSetDepthStencilState(states.DepthDefault(), 0);
     context->RSSetState(states.CullCounterClockwise());
 }
+
 void GamePlaySceneBase::LoadSceneFromJson(GameContext& gameContext, const std::string& filePath)
 {
     SceneData loadedData;
@@ -783,7 +801,15 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
         }
     }
 
+    int prevTurnCount = m_gameLogic.GetCurrentTurnCount();
     m_turnManager.Update(dt, m_gameLogic, m_ai, m_logManager, gameContext.networkManager.IsConnected(), myPlayerType);
+    int nowTurnCount = m_gameLogic.GetCurrentTurnCount();
+    if (nowTurnCount > prevTurnCount && !m_gameLogic.IsGameOver())
+    {
+        AddLog(L"【%d / %d手完了】陣地 青:%dマス vs 赤:%dマス", nowTurnCount, DiceBattleConstants::MAX_TURNS,
+               m_gameLogic.GetPaintedTileCount(PlayerType::Player1),
+               m_gameLogic.GetPaintedTileCount(PlayerType::Player2));
+    }
 
     if (m_judgeManager && m_judgeManager->IsGameOver())
     {
@@ -807,6 +833,14 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
         m_judgeManager->JudgeGame(m_gameLogic, myPlayerType);
         if (m_judgeManager->IsGameOver())
         {
+            int p1Tiles = m_gameLogic.GetPaintedTileCount(PlayerType::Player1);
+            int p2Tiles = m_gameLogic.GetPaintedTileCount(PlayerType::Player2);
+
+            if (m_gameLogic.GetCurrentTurnCount() >= DiceBattleConstants::MAX_TURNS)
+            {
+                AddLog(L"20手経過！陣地判定【青:%dマス vs 赤:%dマス】", p1Tiles, p2Tiles);
+            }
+
             auto state = m_judgeManager->GetResultState();
             if (state == GameJudgeManager::ResultState::Draw)
                 AddLog(L"GAME END : DRAW");
@@ -942,9 +976,17 @@ void GamePlaySceneBase::Update(Imase::ISceneController<SceneId>& sceneController
         }
         else if (!m_gameLogic.IsAnyPieceMoving() && !m_gameLogic.IsWaitingForRoll())
         {
+            int prevMoveTurnCount = m_gameLogic.GetCurrentTurnCount();
             m_movementController.Update(mouseState, mouseTracker, kb, kbState, m_gameLogic, m_logManager,
                                         m_uiController, hoveredGridX, hoveredGridY, isPlayer2, myPlayerType,
                                         isCtrlPressed, &gameContext);
+            int nowMoveTurnCount = m_gameLogic.GetCurrentTurnCount();
+            if (nowMoveTurnCount > prevMoveTurnCount && !m_gameLogic.IsGameOver())
+            {
+                AddLog(L"【%d / %d手完了】陣地 青:%dマス vs 赤:%dマス", nowMoveTurnCount,
+                       DiceBattleConstants::MAX_TURNS, m_gameLogic.GetPaintedTileCount(PlayerType::Player1),
+                       m_gameLogic.GetPaintedTileCount(PlayerType::Player2));
+            }
         }
     }
 
@@ -979,11 +1021,12 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
     int selX = m_movementController.GetSelectedX();
     int selY = m_movementController.GetSelectedY();
 
+    // 盤面（陣地カラー配列を含む）を描画
     m_field.Render(context, gameContext.commonStates, view, proj, curX, curY, selX, selY, false, movableTiles,
-                   rawFaceTextures);
+                   rawFaceTextures, -1, -1, m_gameLogic.GetTileColors());
     m_gameLogic.Render(context, gameContext.commonStates, view, proj);
 
-   // 先攻決定フェーズ中は暗転＋スポットライト＋青赤ダイスを最前面に描画
+    // 先攻決定フェーズ中は暗転＋スポットライト＋青赤ダイスを最前面に描画
     if (m_firstTurnPhase != FirstTurnPhase::Done && m_dropAnimator.IsFinished())
     {
         RenderFirstTurnSpotlight(context, gameContext.commonStates, view, proj);
@@ -1090,8 +1133,11 @@ void GamePlaySceneBase::Render(GameContext& gameContext)
     context->IASetInputLayout(colorInputLayout.Get());
     m_particleManager.Render(context, m_colorPrimitiveBatch.get(), m_colorEffect.get());
 
+    // ログウィンドウ描画（手数・陣地塗りマス数のステータスバー付き）
     m_logManager.Render(context, gameContext.commonStates, gameContext.debugRenderer, m_colorPrimitiveBatch.get(),
-                        m_colorEffect.get(), screenWidth, screenHeight);
+                        m_colorEffect.get(), screenWidth, screenHeight, m_gameLogic.GetCurrentTurnCount(),
+                        DiceBattleConstants::MAX_TURNS, m_gameLogic.GetPaintedTileCount(PlayerType::Player1),
+                        m_gameLogic.GetPaintedTileCount(PlayerType::Player2));
 
     if (m_turnManager.IsNoticeActive() && !isDiceViewerOpen)
     {

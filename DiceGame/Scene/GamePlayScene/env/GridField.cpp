@@ -8,6 +8,7 @@ using namespace DirectX::SimpleMath;
 namespace GridFieldStyleConstants
 {
     constexpr float FLOOR_Y = -0.01f;         // 床ポリゴンのY座標
+    constexpr float TERRITORY_Y = -0.005f;    // 陣地塗りポリゴンのY座標（床とグリッド線の間）
     constexpr float HIGHLIGHT_Y = 0.005f;     // ハイライト領域ポリゴンのY座標
     constexpr float BORDER_Y_OFFSET = 0.001f; // ハイライト外枠線のY座標オフセット
     constexpr float ICON_Y = 0.02f;           // 出目予測アイコンポリゴンのY座標
@@ -49,7 +50,7 @@ void GridField::Update(float dt)
 void GridField::Render(ID3D11DeviceContext* context, const CommonStates& states, const Matrix& view, const Matrix& proj,
                        int cursorX, int cursorY, int selectedX, int selectedY, bool isReviveMode,
                        const std::vector<MovableTileInfo>& movableTiles, ID3D11ShaderResourceView** faceTextures,
-                       int kingAllowedMinY, int kingAllowedMaxY)
+                       int kingAllowedMinY, int kingAllowedMaxY, const std::vector<std::vector<TileColor>>& tileColors)
 {
     m_effect->SetWorld(Matrix::Identity);
     m_effect->SetView(view);
@@ -88,6 +89,41 @@ void GridField::Render(ID3D11DeviceContext* context, const CommonStates& states,
 
     m_primitiveBatch->DrawTriangle(f0, f2, f1);
     m_primitiveBatch->DrawTriangle(f1, f2, f3);
+
+    // 1.5. 陣地塗りカラー（Player1: 青 / Player2: 赤）の描画
+    if (!tileColors.empty())
+    {
+        const Color p1TerritoryColor(0.15f, 0.45f, 0.95f, 0.75f);
+        const Color p2TerritoryColor(0.95f, 0.22f, 0.25f, 0.75f);
+        float territoryY = GridFieldStyleConstants::TERRITORY_Y;
+
+        int maxRows = std::min(m_height, static_cast<int>(tileColors.size()));
+        for (int y = 0; y < maxRows; ++y)
+        {
+            int maxCols = std::min(m_width, static_cast<int>(tileColors[y].size()));
+            for (int x = 0; x < maxCols; ++x)
+            {
+                TileColor ownerColor = tileColors[y][x];
+                if (ownerColor == TileColor::None)
+                    continue;
+
+                Color fillColor = (ownerColor == TileColor::Player1) ? p1TerritoryColor : p2TerritoryColor;
+
+                float minX = startX + x * m_cellSize;
+                float maxX = minX + m_cellSize;
+                float maxZ = startZ - y * m_cellSize;
+                float minZ = maxZ - m_cellSize;
+
+                VertexPositionColor t0(Vector3(minX, territoryY, maxZ), fillColor);
+                VertexPositionColor t1(Vector3(maxX, territoryY, maxZ), fillColor);
+                VertexPositionColor t2(Vector3(maxX, territoryY, minZ), fillColor);
+                VertexPositionColor t3(Vector3(minX, territoryY, minZ), fillColor);
+
+                m_primitiveBatch->DrawTriangle(t0, t3, t1);
+                m_primitiveBatch->DrawTriangle(t1, t3, t2);
+            }
+        }
+    }
 
     // 2. グリッド格子線の色判定および描画
     float luminance = m_floorColor.R() * GridFieldStyleConstants::LUM_R_WEIGHT +

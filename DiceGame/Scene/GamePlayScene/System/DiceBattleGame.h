@@ -7,6 +7,7 @@
 #include <random>
 #include <unordered_map>
 #include <functional>
+#include <algorithm>
 #include <CommonStates.h>
 #include "Dice/Dice.h"
 #include "Dice/StepDice.h"
@@ -17,6 +18,7 @@ namespace DiceBattleConstants
 {
     constexpr int DEFAULT_BOARD_WIDTH = 9;             // 盤面の横幅マス数
     constexpr int DEFAULT_BOARD_HEIGHT = 9;            // 盤面の縦幅マス数
+    constexpr int MAX_TURNS = 20;                      // 1ゲームの最大手数（先手・後手の両方が動かしきって1手）
     constexpr float ROTATION_SPEED = 5.0f;             // サイコロ転がり回転補間スピード
     constexpr float ROLL_ANIM_DURATION = 1.0f;         // 出目決定ダイス投入アニメーション時間（秒）
     constexpr float CELL_SIZE = 2.0f;                  // 1マスのワールドサイズ
@@ -33,6 +35,14 @@ enum class PlayerType
 {
     Player1, // 1P（青側プレイヤー）
     Player2  // 2P（赤側プレイヤー / AI）
+};
+
+// マスの塗りカラー種別
+enum class TileColor
+{
+    None = 0, // 未塗装
+    Player1,  // 1Pカラー（青）
+    Player2   // 2Pカラー（赤）
 };
 
 // コマ種別
@@ -136,14 +146,15 @@ public:
     void ForceEndTurn()
     {
         m_remainingSteps = 0;
-        m_hasRolledThisTurn = false;
-        m_currentTurn = (m_currentTurn == PlayerType::Player1) ? PlayerType::Player2 : PlayerType::Player1;
+        AdvanceTurnAndCheckLimit();
     }
 
     // 先攻決定ダイスで決まったプレイヤーからゲームを開始する関数
     void SetFirstTurnPlayer(PlayerType firstPlayer)
     {
+        m_firstTurnPlayer = firstPlayer;
         m_currentTurn = firstPlayer;
+        m_turnCount = 0;
         m_remainingSteps = 0;
         m_hasRolledThisTurn = false;
         m_isWaitingForRoll = false;
@@ -281,9 +292,61 @@ public:
     void RemovePieceAt(int x, int y);
     void AddPieceAt(int x, int y, PlayerType owner, PieceType type, int topValue);
 
+    // --- 陣地塗り・20ターン制ルール用アクセサ ---
+
+    // 指定マスの塗りカラーを取得
+    TileColor GetTileColor(int x, int y) const
+    {
+        if (y < 0 || y >= static_cast<int>(m_tileColors.size()))
+            return TileColor::None;
+        if (x < 0 || x >= static_cast<int>(m_tileColors[y].size()))
+            return TileColor::None;
+        return m_tileColors[y][x];
+    }
+
+    // 指定プレイヤーの現在の塗りマス数を集計
+    int GetPaintedTileCount(PlayerType player) const
+    {
+        TileColor target = (player == PlayerType::Player1) ? TileColor::Player1 : TileColor::Player2;
+        int count = 0;
+        for (const auto& row : m_tileColors)
+        {
+            for (TileColor cell : row)
+            {
+                if (cell == target)
+                    count++;
+            }
+        }
+        return count;
+    }
+
+    // 現在の完了手数（0〜20）を取得
+    int GetCurrentTurnCount() const
+    {
+        return m_turnCount;
+    }
+
+    // 残り手数（20〜0）を取得
+    int GetRemainingTurns() const
+    {
+        return std::max(0, DiceBattleConstants::MAX_TURNS - m_turnCount);
+    }
+
+    // 盤面全体の塗りカラー配列を取得（GridField::Render 連携用）
+    const std::vector<std::vector<TileColor>>& GetTileColors() const
+    {
+        return m_tileColors;
+    }
+
 private:
     void ResolveBattle(BoardPiece& attacker, BoardPiece& defender, int targetX, int targetY);
     void CheckGameEndConditions();
+
+    // 指定マスをプレイヤーのカラーで塗る（他カラーの上書き可）
+    void PaintTile(int x, int y, PlayerType owner);
+
+    // ターン交代と20手到達時の強制終了・塗りマス数勝敗判定
+    void AdvanceTurnAndCheckLimit();
 
 private:
     ID3D11Device* m_device = nullptr;
@@ -293,9 +356,12 @@ private:
     int m_boardHeight = DiceBattleConstants::DEFAULT_BOARD_HEIGHT;
 
     std::vector<BoardPiece> m_pieces;
+    std::vector<std::vector<TileColor>> m_tileColors; // 各マスの陣地カラー
     StepDice m_stepDice;
 
+    PlayerType m_firstTurnPlayer = PlayerType::Player1; // 先攻プレイヤー
     PlayerType m_currentTurn = PlayerType::Player1;
+    int m_turnCount = 0; // 先攻・後手の両方が動かしきった手数（20で強制終了）
     int m_remainingSteps = 0;
     bool m_isWaitingForRoll = false;
     bool m_hasRolledThisTurn = false;

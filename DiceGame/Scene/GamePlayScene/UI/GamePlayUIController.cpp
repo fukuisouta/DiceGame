@@ -60,6 +60,30 @@ void GamePlayUIController::Initialize(ID3D11Device* device, ID3D11DeviceContext*
                              m_arrowRightTexture.ReleaseAndGetAddressOf());
 
     LoadLayoutFromJson("Resources/Data/ui_layout.json");
+
+    // 各テクスチャ本来の縦横比（Height / Width）を取得して、引き伸ばし・潰れを自動補正する
+    auto FitLayoutAspectRatio = [](ID3D11ShaderResourceView* srv, UIButtonLayout& layout)
+    {
+        if (!srv)
+            return;
+        Microsoft::WRL::ComPtr<ID3D11Resource> res;
+        srv->GetResource(res.GetAddressOf());
+        Microsoft::WRL::ComPtr<ID3D11Texture2D> tex2D;
+        if (SUCCEEDED(res.As(&tex2D)))
+        {
+            D3D11_TEXTURE2D_DESC desc{};
+            tex2D->GetDesc(&desc);
+            if (desc.Width > 0 && desc.Height > 0)
+            {
+                float aspect = static_cast<float>(desc.Height) / static_cast<float>(desc.Width);
+                layout.height = layout.width * aspect;
+            }
+        }
+    };
+
+    FitLayoutAspectRatio(m_diceCheckButtonTexture.Get(), m_diceCheckLayout);
+    FitLayoutAspectRatio(m_logButtonTexture.Get(), m_logLayout);
+    FitLayoutAspectRatio(m_rollDiceButtonTexture.Get(), m_rollLayout);
 }
 
 // リアルタイムUI調整＆セーブ入力処理
@@ -116,16 +140,18 @@ void GamePlayUIController::UpdateDebugAdjustment(const DirectX::Keyboard::Keyboa
     if (kbState.IsKeyDown(DirectX::Keyboard::Keys::Down))
         targetLayout->marginY += moveSpeed;
 
+    // 現在の縦横比（height / width）を保ったまま均等に拡大・縮小する
+    float aspect = (targetLayout->width > 0.0f) ? (targetLayout->height / targetLayout->width) : 0.5f;
+
     if (kbState.IsKeyDown(DirectX::Keyboard::Keys::PageUp))
     {
         targetLayout->width += moveSpeed;
-        targetLayout->height += moveSpeed * 0.5f;
+        targetLayout->height = targetLayout->width * aspect;
     }
     if (kbState.IsKeyDown(DirectX::Keyboard::Keys::PageDown))
     {
         targetLayout->width = (std::max)(UIControllerStyleConstants::MIN_BUTTON_SIZE, targetLayout->width - moveSpeed);
-        targetLayout->height =
-            (std::max)(UIControllerStyleConstants::MIN_BUTTON_SIZE, targetLayout->height - moveSpeed * 0.5f);
+        targetLayout->height = targetLayout->width * aspect;
     }
 }
 

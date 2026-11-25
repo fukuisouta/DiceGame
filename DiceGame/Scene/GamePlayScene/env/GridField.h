@@ -9,6 +9,7 @@
 #include <PrimitiveBatch.h>
 #include <VertexTypes.h>
 #include <SimpleMath.h>
+#include "DiceBattleGame.h"
 
 // 盤面描画用定数定義
 namespace GridFieldConstants
@@ -28,7 +29,7 @@ struct MovableTileInfo
     int expectedFace; // そのマスに移動した際の予想出目（1～6）
 };
 
-// 盤面（グリッドフィールド）の床、グリッド線、ハイライト領域、予想出目描画クラス
+// 盤面（グリッドフィールド）の床、グリッド線、陣地カラー、ハイライト領域、予想出目描画クラス
 class GridField
 {
 public:
@@ -44,16 +45,17 @@ public:
     // 引数 dt: デルタタイム
     void Update(float dt);
 
-    // 盤面（床・格子線・ハイライトマス・移動可能マス・予想出目アイコン）を描画する関数
+    // 盤面（床・陣地塗り・格子線・ハイライトマス・移動可能マス・予想出目アイコン）を描画する関数
     // 引数 context: デバイスコンテキスト, states: コモンステート, view: ビュー行列, proj: プロジェクション行列,
     //      cursorX, cursorY: カーソル格子位置, selectedX, selectedY: 選択中格子位置, isReviveMode:
     //      蘇生選択モードフラグ, movableTiles: 移動可能マスリスト, faceTextures: 出目テクスチャ配列, kingAllowedMinY,
-    //      kingAllowedMaxY: 王の移動許可Y範囲
+    //      kingAllowedMaxY: 王の移動許可Y範囲, tileColors: 各マスの陣地カラー配列（省略可）
     void Render(ID3D11DeviceContext* context, const DirectX::CommonStates& states,
                 const DirectX::SimpleMath::Matrix& view, const DirectX::SimpleMath::Matrix& proj, int cursorX,
                 int cursorY, int selectedX, int selectedY, bool isReviveMode = false,
                 const std::vector<MovableTileInfo>& movableTiles = {},
-                ID3D11ShaderResourceView** faceTextures = nullptr, int kingAllowedMinY = -1, int kingAllowedMaxY = -1);
+                ID3D11ShaderResourceView** faceTextures = nullptr, int kingAllowedMinY = -1, int kingAllowedMaxY = -1,
+                const std::vector<std::vector<TileColor>>& tileColors = {});
 
     // 1マスのサイズ（ワールド単位）を取得する関数
     // 戻り値: マス幅

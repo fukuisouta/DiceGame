@@ -92,7 +92,9 @@ void DiceBattleGame::Initialize(ID3D11Device* device, ID3D11DeviceContext* conte
     m_context = context;
 
     m_pieces.clear();
+    m_firstTurnPlayer = PlayerType::Player1;
     m_currentTurn = PlayerType::Player1;
+    m_turnCount = 0;
     m_isGameOver = false;
     m_isDraw = false;
 
@@ -105,6 +107,9 @@ void DiceBattleGame::Initialize(ID3D11Device* device, ID3D11DeviceContext* conte
 
     m_isShielded[PlayerType::Player1] = false;
     m_isShielded[PlayerType::Player2] = false;
+
+    // 盤面の塗りカラーを未塗装で初期化
+    m_tileColors.assign(m_boardHeight, std::vector<TileColor>(m_boardWidth, TileColor::None));
 
     float cellSize = DiceBattleConstants::CELL_SIZE;
     float leftEdgeX = -(BOARD_WIDTH * cellSize * 0.5f) - 3.0f;
@@ -145,6 +150,9 @@ void DiceBattleGame::Initialize(ID3D11Device* device, ID3D11DeviceContext* conte
 
         piece.startPos = initialPos;
         piece.targetPos = initialPos;
+
+        // 初期配置マスを所有プレイヤーのカラーで塗る
+        PaintTile(gx, gy, owner);
 
         m_pieces.push_back(piece);
     };
@@ -208,6 +216,11 @@ void DiceBattleGame::ApplyWorldSyncFromHost(const MsgWorldSync& syncData)
     {
         auto& p = m_pieces[i];
         const auto& src = syncData.pieces[i];
+
+        if (p.isActive && src.isActive && (p.gridX != src.gridX || p.gridY != src.gridY))
+        {
+            PaintTile(src.gridX, src.gridY, p.owner);
+        }
 
         p.gridX = src.gridX;
         p.gridY = src.gridY;
@@ -274,7 +287,7 @@ void DiceBattleGame::StartTurn()
 // 固定歩数でターン開始
 void DiceBattleGame::StartTurnWithSteps(int fixedSteps)
 {
-    if (m_isWaitingForRoll || m_hasRolledThisTurn || m_remainingSteps > 0)
+    if (m_isGameOver || m_isWaitingForRoll || m_hasRolledThisTurn || m_remainingSteps > 0)
         return;
 
     m_targetFixedSteps = fixedSteps;
@@ -435,6 +448,54 @@ BoardPiece* DiceBattleGame::GetPieceAt(int x, int y)
     return nullptr;
 }
 
+// マスの塗りカラー設定（他カラーからの上書き可能）
+void DiceBattleGame::PaintTile(int x, int y, PlayerType owner)
+{
+    if (y < 0 || y >= static_cast<int>(m_tileColors.size()))
+        return;
+    if (x < 0 || x >= static_cast<int>(m_tileColors[y].size()))
+        return;
+
+    m_tileColors[y][x] = (owner == PlayerType::Player1) ? TileColor::Player1 : TileColor::Player2;
+}
+
+// ターン交代および20手上限チェック・塗りマス数勝敗判定
+void DiceBattleGame::AdvanceTurnAndCheckLimit()
+{
+    // 後攻プレイヤー（先攻ではない方）が動かしきった時点で「1手完了」とする
+    if (m_currentTurn != m_firstTurnPlayer)
+    {
+        m_turnCount++;
+
+        if (m_turnCount >= DiceBattleConstants::MAX_TURNS)
+        {
+            m_isGameOver = true;
+
+            int p1Tiles = GetPaintedTileCount(PlayerType::Player1);
+            int p2Tiles = GetPaintedTileCount(PlayerType::Player2);
+
+            if (p1Tiles > p2Tiles)
+            {
+                m_isDraw = false;
+                m_winner = PlayerType::Player1;
+            }
+            else if (p2Tiles > p1Tiles)
+            {
+                m_isDraw = false;
+                m_winner = PlayerType::Player2;
+            }
+            else
+            {
+                m_isDraw = true;
+            }
+            return;
+        }
+    }
+
+    m_currentTurn = (m_currentTurn == PlayerType::Player1) ? PlayerType::Player2 : PlayerType::Player1;
+    m_hasRolledThisTurn = false;
+}
+
 // コマの移動実行
 bool DiceBattleGame::MovePiece(int fromX, int fromY, int toX, int toY)
 {
@@ -448,7 +509,7 @@ bool DiceBattleGame::MovePiece(int fromX, int fromY, int toX, int toY)
     if (attacker->rotProgress < 1.0f)
         return false;
 
-    if (toX < 0 || toX >= BOARD_WIDTH || toY < 0 || toY >= BOARD_HEIGHT)
+    if (toX < 0 || toX >= m_boardWidth || toY < 0 || toY >= m_boardHeight)
         return false;
 
     int dx = toX - fromX;
@@ -491,11 +552,20 @@ bool DiceBattleGame::MovePiece(int fromX, int fromY, int toX, int toY)
     if (targetPiece && targetPiece->owner != m_currentTurn)
     {
         ResolveBattle(*attacker, *targetPiece, toX, toY);
+
+        // バトルに勝利して目標マスへ進入できた場合、そのマスを自カラーで塗る（上書き可）
+        if (attacker->isActive && attacker->gridX == toX && attacker->gridY == toY)
+        {
+            PaintTile(toX, toY, m_currentTurn);
+        }
     }
     else
     {
         attacker->gridX = toX;
         attacker->gridY = toY;
+
+        // 進んだマスを自カラーで塗る（他カラーの上書き可）
+        PaintTile(toX, toY, m_currentTurn);
     }
 
     CheckGameEndConditions();
@@ -509,8 +579,7 @@ bool DiceBattleGame::MovePiece(int fromX, int fromY, int toX, int toY)
 
     if (m_remainingSteps <= 0)
     {
-        m_currentTurn = (m_currentTurn == PlayerType::Player1) ? PlayerType::Player2 : PlayerType::Player1;
-        m_hasRolledThisTurn = false;
+        AdvanceTurnAndCheckLimit();
     }
 
     return true;
@@ -712,6 +781,8 @@ void DiceBattleGame::AddPieceAt(int x, int y, PlayerType owner, PieceType type, 
     piece.startPos = initialPos;
     piece.targetPos = initialPos;
 
+    PaintTile(x, y, owner);
+
     m_pieces.push_back(piece);
 }
 
@@ -751,6 +822,8 @@ bool DiceBattleGame::RevivePieceAt(PlayerType player, int targetX, int targetY)
             {
                 piece.diceInstance->SetPosition(pos);
             }
+
+            PaintTile(targetX, targetY, player);
             return true;
         }
     }

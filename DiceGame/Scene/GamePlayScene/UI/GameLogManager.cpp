@@ -17,6 +17,7 @@ namespace ChatLogStyle
     constexpr float PANEL_MARGIN_TOP = 90.0f;    // 上部余白（LOGボタンを避ける高さ）
     constexpr float PANEL_MARGIN_BOTTOM = 30.0f; // 下部余白
     constexpr float HEADER_HEIGHT = 44.0f;       // ヘッダーバー高さ
+    constexpr float STATUS_BAR_HEIGHT = 36.0f;   // 手数・陣地状況ステータスバー高さ
 
     constexpr float CHAT_SIDE_PADDING = 36.0f;      // パネル内側の左右余白
     constexpr float BUBBLE_PAD_X = 20.0f;           // 吹き出し内の左右パディング
@@ -205,7 +206,8 @@ void GameLogManager::RenderButton(ID3D11DeviceContext* context, PrimitiveBatch<V
 // 全画面チャット形式ログウィンドウの描画
 void GameLogManager::Render(ID3D11DeviceContext* context, CommonStates& states, Imase::DebugRenderer& debugRenderer,
                             PrimitiveBatch<VertexPositionColor>* batchColor, BasicEffect* effectColor,
-                            float screenWidth, float screenHeight)
+                            float screenWidth, float screenHeight, int currentTurn, int maxTurns, int p1PaintedTiles,
+                            int p2PaintedTiles)
 {
     if (!m_showLogWindow || batchColor == nullptr || effectColor == nullptr)
         return;
@@ -252,7 +254,8 @@ void GameLogManager::Render(ID3D11DeviceContext* context, CommonStates& states, 
     float panelW = std::max(300.0f, screenWidth - ChatLogStyle::PANEL_MARGIN_X * 2.0f);
     float panelH = std::max(200.0f, screenHeight - ChatLogStyle::PANEL_MARGIN_TOP - ChatLogStyle::PANEL_MARGIN_BOTTOM);
 
-    float contentTop = panelY + ChatLogStyle::HEADER_HEIGHT + 12.0f;
+    float statusBarY = panelY + ChatLogStyle::HEADER_HEIGHT;
+    float contentTop = statusBarY + ChatLogStyle::STATUS_BAR_HEIGHT + 12.0f;
     float contentBottom = panelY + panelH - 12.0f;
     float contentHeight = std::max(50.0f, contentBottom - contentTop);
     float maxBubbleW = panelW * ChatLogStyle::BUBBLE_MAX_WIDTH_RATIO;
@@ -318,7 +321,7 @@ void GameLogManager::Render(ID3D11DeviceContext* context, CommonStates& states, 
 
     float baseOffsetY = (totalContentH <= contentHeight) ? contentTop : (contentBottom - totalContentH + m_scrollY);
 
-    // --- 1. 背景パネルと吹き出しポリゴンの一括描画 ---
+    // --- 1. 背景パネル・ステータスバー・吹き出しポリゴンの一括描画 ---
     batchColor->Begin();
 
     DrawRect(0.0f, 0.0f, screenWidth, screenHeight, Vector4(0.0f, 0.0f, 0.0f, 0.45f));
@@ -326,6 +329,11 @@ void GameLogManager::Render(ID3D11DeviceContext* context, CommonStates& states, 
     DrawRect(panelX - 2.0f, panelY - 2.0f, panelW + 4.0f, panelH + 4.0f, Vector4(0.35f, 0.45f, 0.65f, 0.9f));
     DrawRect(panelX, panelY, panelW, panelH, Vector4(0.06f, 0.08f, 0.14f, 0.92f));
     DrawRect(panelX, panelY, panelW, ChatLogStyle::HEADER_HEIGHT, Vector4(0.12f, 0.16f, 0.28f, 0.98f));
+
+    // 手数・陣地状況ステータスバー背景
+    DrawRect(panelX, statusBarY, panelW, ChatLogStyle::STATUS_BAR_HEIGHT, Vector4(0.09f, 0.12f, 0.20f, 0.96f));
+    DrawRect(panelX, statusBarY + ChatLogStyle::STATUS_BAR_HEIGHT - 1.0f, panelW, 1.0f,
+             Vector4(0.35f, 0.45f, 0.65f, 0.65f));
 
     for (const auto& item : layoutItems)
     {
@@ -379,9 +387,15 @@ void GameLogManager::Render(ID3D11DeviceContext* context, CommonStates& states, 
 
     batchColor->End();
 
-    // --- 2. ヘッダータイトルおよび吹き出し内テキストの描画 ---
+    // --- 2. ヘッダータイトル・手数＆陣地状況・吹き出し内テキストの描画 ---
     debugRenderer.DrawText(Vector2(panelX + 20.0f, panelY + 10.0f), Vector4(0.9f, 0.95f, 1.0f, 1.0f),
                            L"BATTLE LOG  (ホイールでスクロール / LOGボタンで閉じる)");
+
+    int remainingTurns = std::max(0, maxTurns - currentTurn);
+    wchar_t statusBuf[128] = {};
+    swprintf_s(statusBuf, L"【現在手数】 %d / %d手 (残り %d手)      【陣地塗り】 青(1P): %dマス  vs  赤(2P): %dマス",
+               currentTurn, maxTurns, remainingTurns, p1PaintedTiles, p2PaintedTiles);
+    debugRenderer.DrawText(Vector2(panelX + 20.0f, statusBarY + 6.0f), Vector4(0.65f, 0.92f, 1.0f, 1.0f), statusBuf);
 
     for (const auto& item : layoutItems)
     {

@@ -54,6 +54,14 @@ void LobbyScene::Update(Imase::ISceneController<SceneId>& sceneController, GameC
         sceneController.RequestSwitch(SceneId::MultiSearchScene);
         return;
     }
+    // 「タイトルへ戻る」ボタンが押されていたらタイトルシーンへ遷移
+    if (m_statusMsg == "GOTO_TITLE")
+    {
+        m_statusMsg.clear();
+        gameContext.networkManager.ForceDisconnect();
+        sceneController.RequestSwitch(SceneId::TitleScene);
+        return;
+    }
 
     gameContext.networkManager.Update();
 
@@ -179,6 +187,15 @@ void LobbyScene::Render(GameContext& gameContext)
                 m_statusMsg =
                     (const char*)u8"サーバー接続に失敗しました。通信環境またはサーバー稼働状態を確認してください。";
             }
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        if (ImGui::Button((const char*)u8"タイトルへ戻る", ImVec2(-1.0f, 40.0f)))
+        {
+            m_statusMsg = "GOTO_TITLE";
         }
 
         if (!m_statusMsg.empty())

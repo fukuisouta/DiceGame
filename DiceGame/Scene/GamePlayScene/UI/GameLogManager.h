@@ -68,10 +68,11 @@ public:
     // マウススクロール・ボタンホバーの更新を行う関数
     void Update(const DirectX::Mouse::State& mouseState, float screenWidth, float screenHeight);
 
-    // ログ表示ウィンドウの描画を行う関数
+    // ログ表示ウィンドウの描画を行う関数（手数・陣地ステータス表示対応）
     void Render(ID3D11DeviceContext* context, DirectX::CommonStates& states, Imase::DebugRenderer& debugRenderer,
                 DirectX::PrimitiveBatch<DirectX::VertexPositionColor>* batchColor, DirectX::BasicEffect* effectColor,
-                float screenWidth, float screenHeight);
+                float screenWidth, float screenHeight, int currentTurn = 0, int maxTurns = 20, int p1PaintedTiles = 0,
+                int p2PaintedTiles = 0);
 
     // LOG表示切替ボタン（LOG.png）の描画を行う関数
     void RenderButton(ID3D11DeviceContext* context, DirectX::PrimitiveBatch<DirectX::VertexPositionTexture>* batch,
