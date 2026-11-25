@@ -1,15 +1,17 @@
 ﻿#pragma once
 #include <string>
+#include <cstdint>
 
 struct GameContext;
 
 // オンラインロビーUI用定数定義
 namespace LobbyUIConstants
 {
-    constexpr size_t BUFFER_SIZE = 64;       // 入力バッファサイズ
-    constexpr int MODE_HOST_INDEX = 0;       // モード選択: ホスト(部屋作成)のラジオインデックス
-    constexpr int MODE_CLIENT_INDEX = 1;     // モード選択: クライアント(参加)のラジオインデックス
-    constexpr uint16_t DEFAULT_PORT = 46860; // ロビー接続ポート番号
+    constexpr size_t BUFFER_SIZE = 64;                        // 入力バッファサイズ
+    constexpr int MODE_HOST_INDEX = 0;                        // モード選択: ホスト(部屋作成)のラジオインデックス
+    constexpr int MODE_CLIENT_INDEX = 1;                      // モード選択: クライアント(参加)のラジオインデックス
+    constexpr const char* DEFAULT_SERVER_IP = "129.225.179.35"; // 接続先専用サーバーIP（画面非表示）
+    constexpr uint16_t DEFAULT_PORT = 46860;                  // ロビー接続ポート番号
 }
 
 // オンライン対戦ロビー画面のUI描画およびユーザー入力を制御するクラス
@@ -19,7 +21,7 @@ public:
     NetworkLobbyUI() = default;
     ~NetworkLobbyUI() = default;
 
-    // 起動時にローカルIPを自動取得して表示バッファにセットする関数
+    // 初期化処理
     void Initialize();
 
     // オンライン対戦ロビーUIの全画面描画を行う関数
@@ -51,9 +53,6 @@ private:
 
     char m_playerNameBuffer[LobbyUIConstants::BUFFER_SIZE] = "Player"; // プレイヤー名入力用バッファ
     std::string m_playerNameStr = "Player";                            // 確定したプレイヤー表示名
-
-    std::string m_myIPAddress = "127.0.0.1";                            // 自PCの自動取得IPv4アドレス文字列
-    char m_targetIpBuffer[LobbyUIConstants::BUFFER_SIZE] = "127.0.0.1"; // 接続相手のIP入力バッファ
 
     std::string m_statusMsg = "Ready"; // ロビー画面下部に表示する接続ステータスメッセージ
 };

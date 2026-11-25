@@ -1,0 +1,56 @@
+====================================================================
+  DiceGame クラウド専用サーバー（SOSOServer）運用・接続メモ
+====================================================================
+
+■ サーバー接続情報（ゲームクライアント設定用）
+・IPアドレス : 161.33.14.25
+・ポート番号 : 46860 (TCP)
+
+
+■ 1. クラウドサーバーへの接続手順（SSHログイン）
+1. Windows のスタートメニューや検索バーから「PowerShell」または「ターミナル」を開く
+2. 以下のコマンドを貼り付けて Enter を押す
+
+ssh -i "$env:USERPROFILE\Downloads\ssh-key-2026-11-17.key" ubuntu@161.33.14.25
+
+※プロンプトが「ubuntu@dice-battle-server:~$」に変わればログイン完了。
+※「Downloads」フォルダ内の鍵ファイル（ssh-key-2026-11-17.key）は
+  削除・移動せず保管しておくこと。
+※ターミナルを閉じてもサーバーは24時間バックグラウンドで稼働し続けます。
+
+
+■ 2. ログイン後に使う主な運用コマンド（Ubuntu側）
+・リアルタイムで接続・対戦ログを見る（終了は Ctrl + C）
+  journalctl -u soso-server -f
+
+・サーバーが正常に動いているか確認する（終了は q キー）
+  sudo systemctl status soso-server
+
+・サーバーを再起動する
+  sudo systemctl restart soso-server
+
+・サーバーを停止する
+  sudo systemctl stop soso-server
+
+・SSH接続を終了してローカルに戻る
+  exit
+
+
+■ 3. サーバープログラム（C++）を更新・反映する手順
+Visual Studio でコードを修正した後、以下の順番でクラウドへ反映します。
+
+[手順A] Windows の PowerShell（SSHログイン前のローカル状態）でファイル送信
+$keyPath = "$env:USERPROFILE\Downloads\ssh-key-2026-11-17.key"
+$srcDir = "C:\Users\it252185\Desktop\すてんな\DiceGame\DiceGame\SOSOServer"
+scp -i $keyPath "$srcDir\*.h" "$srcDir\*.cpp" ubuntu@161.33.14.25:~/SOSOServer/
+
+[手順B] SSHログイン後の Ubuntu 側で再コンパイル＆再起動
+cd ~/SOSOServer && g++ -std=c++20 -O2 -pthread ServerMain.cpp SOSOServerEngine.cpp ServerNetworkManager.cpp NetworkUtils.cpp RoomManager.cpp GameRoom.cpp ServerGameLogic.cpp -o soso_server && sudo systemctl restart soso-server
+
+
+■ 補足メモ
+・ローカル側の「GameConfig.h」の3行目に「#include <cstddef>」を
+  記載しておくと、手順Aで上書き転送した際もそのまま一発でコンパイルできます。
+・OCI コンソールからインスタンス自体を「停止(Stop)→起動(Start)」すると
+  パブリックIPが変わることがあります（OS内の sudo reboot なら変わりません）。
+====================================================================

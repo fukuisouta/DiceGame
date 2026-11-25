@@ -32,6 +32,7 @@
 #include "TurnManager.h"
 #include "DiceViewerController.h"
 #include "Dice/KnockbackDice.h"
+#include "Dice/Dice.h"
 
 class Dice;
 
@@ -70,27 +71,19 @@ public:
     GamePlaySceneBase();
     virtual ~GamePlaySceneBase();
 
-    // シーン遷移時に呼び出され、盤面や対戦システムの初期化を行う関数
-    // 引数 gameContext: ゲーム全体の共有コンテキスト
     void OnEnter(GameContext& gameContext) override;
-
-    // フレーム毎のターン状態、カメラ、入力、描画オブジェクト更新を行う関数
-    // 引数 sceneController: シーン遷移管理コントローラー, gameContext: ゲーム全体の共有コンテキスト
     void Update(Imase::ISceneController<SceneId>& sceneController, GameContext& gameContext) override;
-
-    // 盤面、3Dダイス、吹っ飛び演出、2D UI、ゲーム判定ダイアログを描画する関数
-    // 引数 gameContext: ゲーム全体の共有コンテキスト
     void Render(GameContext& gameContext) override;
 
-    // 画面中央にターン交代やイベント通知のポップアップを表示する関数
-    // 引数 text: 表示メッセージ文字列, duration: 表示時間（秒）
     void TriggerTurnNotice(const std::wstring& text, float duration = GamePlayBaseConstants::DEFAULT_NOTICE_DURATION);
-
-    // コマの選択・移動操作状態をリセットする関数
     void ResetMoveState();
 
-    // フォーマット付きで行動ログウィンドウにテキストを追加する関数
-    // 引数 fmt: 書式指定文字列, ...: 可変長引数
+    // 振り直しスキル使用時などにロール連打ロックを解除する関数
+    void UnlockRollButton()
+    {
+        m_hasClickedRollThisTurn = false;
+    }
+
     void AddLog(const wchar_t* fmt, ...)
     {
         wchar_t buffer[GamePlayBaseConstants::LOG_BUFFER_SIZE];
@@ -101,9 +94,6 @@ public:
         m_logManager.AddLog(buffer);
     }
 
-    // 撃破されたダイスの吹っ飛びアニメーションインスタンスを生成して追記する関数
-    // 引数 device: Direct3D11デバイス, context: Direct3D11デバイスコンテキスト, attackerPos: 攻撃側座標, victimPos:
-    // 被弾側座標, modelPath: ダイスモデルのパス
     void SpawnKnockbackDice(ID3D11Device* device, ID3D11DeviceContext* context,
                             const DirectX::SimpleMath::Vector3& attackerPos,
                             const DirectX::SimpleMath::Vector3& victimPos,
@@ -116,70 +106,83 @@ public:
     }
 
 protected:
-    // モード固有の初期化処理を実行する抽象関数
-    // 引数 gameContext: ゲーム全体の共有コンテキスト
     virtual void OnModeEnter(GameContext& gameContext) = 0;
-
-    // モード固有のロジック・スキル更新処理を実行する抽象関数
-    // 引数 dt: デルタタイム, gameContext: ゲーム全体の共有コンテキスト
     virtual void OnModeUpdate(float dt, GameContext& gameContext) = 0;
-
-    // モード固有の2D UI描画処理を実行する抽象関数
-    // 引数 context: デバイスコンテキスト, screenWidth: 画面幅, screenHeight: 画面高さ, gameContext: 共有コンテキスト
     virtual void OnModeRender2D(ID3D11DeviceContext* context, float screenWidth, float screenHeight,
                                 GameContext& gameContext) = 0;
-
-    // 蘇生ターゲットなどの選択モード中かどうかを判定する抽象関数
-    // 戻り値: 選択中であれば true, 通常時であれば false
     virtual bool IsModeSelectingTarget() const = 0;
-
-    // マス目選択モード時のクリック判定をハンドリングする抽象関数
-    // 引数 gridX: クリックされたX格子座標, gridY: クリックされたY格子座標
     virtual void OnModeGridClicked(int gridX, int gridY) = 0;
 
-    // JSONファイルからステージモデルや配置データをロードする内部関数
-    // 引数 gameContext: 共有コンテキスト, filePath: JSONファイルパス
+    void SendHostWorldSync(GameContext& gameContext);
     void LoadSceneFromJson(GameContext& gameContext, const std::string& filePath);
-
-    // 現在プレイヤーが選択中またはフォーカスしているダイスのインスタンスを取得する内部関数
-    // 戻り値: 該当するDiceポインタ
     Dice* GetTargetDiceInstance();
-
-    // 選択されたコマから移動可能なマス情報の一覧を算出する内部関数
-    // 戻り値: 移動可能マス情報の配列
     std::vector<MovableTileInfo> GetMovableTiles() const;
 
+private:
+
+    void RenderFirstTurnSpotlight(ID3D11DeviceContext* context, const DirectX::CommonStates& states,
+                                  const DirectX::SimpleMath::Matrix& view, const DirectX::SimpleMath::Matrix& proj);
+
+    DirectX::SimpleMath::Vector3 m_p1FirstStartPos;
+    DirectX::SimpleMath::Vector3 m_p1FirstTargetPos;
+    DirectX::SimpleMath::Vector3 m_p2FirstStartPos;
+    DirectX::SimpleMath::Vector3 m_p2FirstTargetPos;
+    float m_firstRollTotalDuration = 1.2f;
+    float m_spotlightAlpha = 0.0f;
+   
+    void StartFirstTurnRoll(GameContext& gameContext);
+    void UpdateFirstTurnPhase(float dt, GameContext& gameContext);
+    static DirectX::SimpleMath::Quaternion GetDiceFaceRotation(int face);
+
 protected:
-    GridField m_field;          // 盤面グリッド描画オブジェクト
-    DiceBattleGame m_gameLogic; // ダイスバトルルール・ロジック対戦システム
+    GridField m_field;
+    DiceBattleGame m_gameLogic;
 
-    std::vector<std::unique_ptr<KnockbackDice>> m_knockbackDiceList; // 吹っ飛びアニメーション演出中のダイスリスト
+    std::vector<std::unique_ptr<KnockbackDice>> m_knockbackDiceList;
 
-    DiceBattleAI m_ai;                 // CPU対戦用AI思考システム
-    PieceDropAnimator m_dropAnimator;  // 対戦開始時のコマ落下アニメーション演出
-    ParticleManager m_particleManager; // マウスクリックや被弾時の粒子エフェクト
-    GameLogManager m_logManager;       // 行動ログ表示ウィンドウUI
-    CameraManager m_cameraManager;     // 対戦視点カメラ制御
+    DiceBattleAI m_ai;
+    PieceDropAnimator m_dropAnimator;
+    ParticleManager m_particleManager;
+    GameLogManager m_logManager;
+    CameraManager m_cameraManager;
 
-    GamePlayUIController m_uiController; // ゲーム中のボタン・勝敗演出UI制御
+    GamePlayUIController m_uiController;
+    std::unique_ptr<GameJudgeManager> m_judgeManager;
 
-    std::unique_ptr<GameJudgeManager> m_judgeManager; // ゲーム勝敗・リトライダイアログ管理
+    PieceMovementController m_movementController;
+    TurnManager m_turnManager;
+    DiceViewerController m_diceViewerController;
 
-    PieceMovementController m_movementController; // コマ選択・格子移動ロジック
-    TurnManager m_turnManager;                    // ターン切り替え通知・タイミング管理
-    DiceViewerController m_diceViewerController;  // 選択ダイスの3D詳細出目確認画面
+    std::vector<PlacedObject> m_placedObjects;
+    std::vector<PlacedObject> m_loadedObjects;
 
-    std::vector<PlacedObject> m_placedObjects; // シーンファイルからロードしたオブジェクト定義
-    std::vector<PlacedObject> m_loadedObjects; // 実際の実体モデルオブジェクトリスト
+    std::unique_ptr<DirectX::PrimitiveBatch<DirectX::VertexPositionTexture>> m_primitiveBatch;
+    std::unique_ptr<DirectX::PrimitiveBatch<DirectX::VertexPositionColor>> m_colorPrimitiveBatch;
+    std::unique_ptr<DirectX::BasicEffect> m_effect;
+    std::unique_ptr<DirectX::BasicEffect> m_colorEffect;
+    std::array<Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>, 7> m_diceCountTextures;
 
-    std::unique_ptr<DirectX::PrimitiveBatch<DirectX::VertexPositionTexture>> m_primitiveBatch; // 2Dテクスチャ描画バッチ
-    std::unique_ptr<DirectX::PrimitiveBatch<DirectX::VertexPositionColor>>
-        m_colorPrimitiveBatch;                           // 2D単色ポリゴン描画バッチ
-    std::unique_ptr<DirectX::BasicEffect> m_effect;      // 2Dテクスチャエフェクト
-    std::unique_ptr<DirectX::BasicEffect> m_colorEffect; // 2Dカラーエフェクト
-    std::array<Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>, 7>
-        m_diceCountTextures; // 出目（1〜6）用数字テクスチャ配列
+    std::unique_ptr<DirectX::GeometricPrimitive> m_selectionMarker;
+    float m_markerAnimTimer = 0.0f;
 
-    std::unique_ptr<DirectX::GeometricPrimitive> m_selectionMarker; // マス選択中マーカー描画用コーン
-    float m_markerAnimTimer = 0.0f;                                 // マーカーアニメーション時間タイマー
+    bool m_hasClickedRollThisTurn = false; // 連打による二重ロール防止ロック
+
+    // --- 先攻・後攻決定ダイスロール演出用メンバ ---
+    enum class FirstTurnPhase
+    {
+        Rolling,       // 両プレイヤーのダイス回転演出中
+        WaitingServer, // 相手のダイス結果とサーバー判定待ち
+        ShowingResult, // 出目結果と先攻発表表示中
+        Done           // 決定完了（通常対戦中）
+    };
+
+    FirstTurnPhase m_firstTurnPhase = FirstTurnPhase::Rolling;
+    Dice m_p1FirstDice; // 1P（青）の先攻決め演出用ダイス
+    Dice m_p2FirstDice; // 2P（赤）の先攻決め演出用ダイス
+    float m_firstRollTimer = 0.0f;
+    int m_myFirstRollValue = 0;
+    int m_p1ResultRoll = 0;
+    int m_p2ResultRoll = 0;
+    uint8_t m_decidedFirstPlayer = 0;
+    bool m_hasReceivedFirstResult = false;
 };

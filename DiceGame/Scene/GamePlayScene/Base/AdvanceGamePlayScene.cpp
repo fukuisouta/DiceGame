@@ -1,5 +1,6 @@
 ﻿#include "pch.h"
 #include "AdvanceGamePlayScene.h"
+#include "Network/NetworkPackets.h"
 #include <Mouse.h>
 #include <Keyboard.h>
 #include <algorithm>
@@ -7,64 +8,136 @@
 using namespace DirectX;
 using namespace DirectX::SimpleMath;
 
-// アドバンススタイル定数定義
 namespace AdvanceStyleConstants
 {
-    constexpr float DUPLICATE_DICE_OFFSET_X = 1.8f; // ダブルロール時の重複ダイス描画Xオフセット
+    constexpr float DUPLICATE_DICE_OFFSET_X = 1.8f;
 
-    constexpr float CARD_WIDTH = 100.0f;        // スキルカード表示幅
-    constexpr float CARD_HEIGHT = 150.0f;       // スキルカード表示高さ
-    constexpr float CARD_SPACING = 16.0f;       // スキルカード間隔
-    constexpr float HAND_START_X = 20.0f;       // 手札開始X座標
-    constexpr float HAND_MARGIN_BOTTOM = 20.0f; // 手札画面下部マージン
-    constexpr float HOVER_OFFSET_Y = 12.0f;     // ホバー時の浮き上がり移動量
+    constexpr float CARD_WIDTH = 100.0f;
+    constexpr float CARD_HEIGHT = 150.0f;
+    constexpr float CARD_SPACING = 16.0f;
+    constexpr float HAND_START_X = 20.0f;
+    constexpr float HAND_MARGIN_BOTTOM = 20.0f;
+    constexpr float HOVER_OFFSET_Y = 12.0f;
 
-    constexpr float TOOLTIP_BG_WIDTH = 260.0f;    // ツールチップ背景幅
-    constexpr float TOOLTIP_LINE_HEIGHT = 26.0f;  // ツールチップ行高さ
-    constexpr float TOOLTIP_MARGIN_Y = 16.0f;     // ツールチップ背景上下マージン
-    constexpr float TOOLTIP_PADDING_X = 12.0f;    // ツールチップテキストXパディング
-    constexpr float TOOLTIP_PADDING_Y = 10.0f;    // ツールチップテキストYパディング
-    constexpr float TOOLTIP_TEXT_STEP_Y = 24.0f;  // ツールチップテキスト改行間隔
-    constexpr float TOOLTIP_MIN_MARGIN = 10.0f;   // ツールチップ画面端最小マージン
-    constexpr float TOOLTIP_OFFSET_Y = 8.0f;      // ツールチップカードからの上下オフセット
-    constexpr size_t DESCRIPTION_CHUNK_SIZE = 10; // ツールチップ説明テキスト折り返し文字数
+    constexpr float TOOLTIP_BG_WIDTH = 260.0f;
+    constexpr float TOOLTIP_LINE_HEIGHT = 26.0f;
+    constexpr float TOOLTIP_MARGIN_Y = 16.0f;
+    constexpr float TOOLTIP_PADDING_X = 12.0f;
+    constexpr float TOOLTIP_PADDING_Y = 10.0f;
+    constexpr float TOOLTIP_TEXT_STEP_Y = 24.0f;
+    constexpr float TOOLTIP_MIN_MARGIN = 10.0f;
+    constexpr float TOOLTIP_OFFSET_Y = 8.0f;
+    constexpr size_t DESCRIPTION_CHUNK_SIZE = 10;
 
-    constexpr float DEBUG_TEXT_POS_X = 10.0f; // デバッグテキスト表示位置X
-    constexpr float DEBUG_TEXT_POS_Y = 35.0f; // デバッグテキスト表示位置Y
+    constexpr float DEBUG_TEXT_POS_X = 10.0f;
+    constexpr float DEBUG_TEXT_POS_Y = 35.0f;
 }
 
-// モード進入時処理
+bool AdvanceGamePlayScene::IsMyTurn(GameContext& gameContext) const
+{
+    if (!gameContext.networkManager.IsConnected())
+    {
+        return true;
+    }
+
+    PlayerType currentTurn = m_gameLogic.GetCurrentTurn();
+    uint8_t assignedRole = gameContext.networkManager.GetAssignedPlayerType();
+
+    if (assignedRole == 1)
+    {
+        return (currentTurn == PlayerType::Player1);
+    }
+    else if (assignedRole == 2)
+    {
+        return (currentTurn == PlayerType::Player2);
+    }
+
+    return false;
+}
+
 void AdvanceGamePlayScene::OnModeEnter(GameContext& gameContext)
 {
     m_gameLogic.SetAdvanceMode(true);
     m_skillManager.Initialize(gameContext.deviceResources.GetD3DDevice());
     m_skillManager.InitializeHandCards();
+
+    if (gameContext.networkManager.IsConnected())
+    {
+        uint8_t assignedRole = gameContext.networkManager.GetAssignedPlayerType();
+        m_isClient = (assignedRole == 2);
+        m_myPlayerType = m_isClient ? PlayerType::Player2 : PlayerType::Player1;
+
+        if (m_isClient)
+        {
+            AddLog(L"【2P(赤) / GUEST】として接続中（アドバンスモード）");
+        }
+        else
+        {
+            AddLog(L"【1P(青) / HOST】として接続中（アドバンスモード）");
+        }
+    }
+    else
+    {
+        m_isClient = false;
+        m_myPlayerType = PlayerType::Player1;
+    }
+
+    gameContext.networkManager.SetOnSkillUse(
+        [this, &gameContext](uint8_t skillType, int targetX, int targetY)
+        {
+            SkillType st = static_cast<SkillType>(skillType);
+            bool hasMoved = m_movementController.HasMovedThisTurn();
+            PlayerType enemyPlayerType =
+                (m_myPlayerType == PlayerType::Player1) ? PlayerType::Player2 : PlayerType::Player1;
+
+            m_skillManager.ProcessRemoteSkillClick(st, this, m_gameLogic, hasMoved, enemyPlayerType, targetX, targetY);
+
+            // ホスト(1P)ならゲストのスキル反映後に盤面を同期
+            if (gameContext.networkManager.GetAssignedPlayerType() == 1)
+            {
+                SendHostWorldSync(gameContext);
+            }
+        });
 }
 
-// モード更新処理
 void AdvanceGamePlayScene::OnModeUpdate(float dt, GameContext& gameContext)
 {
-    if (m_gameLogic.GetCurrentTurn() == PlayerType::Player2 && m_skillManager.IsFreezeNextTurn())
+    if (gameContext.networkManager.IsConnected() && m_movementController.HasMovedThisTurn() &&
+        m_gameLogic.GetRemainingSteps() <= 0 && !m_gameLogic.IsAnyPieceMoving())
     {
-        m_skillManager.SetFreezeNextTurn(false);
-        m_gameLogic.SetRemainingSteps(0);
-        m_skillManager.SetDoubleRollActive(false);
-        m_gameLogic.ForceEndTurn();
-        TriggerTurnNotice(L"相手は凍結中！", AdvanceSceneConstants::FREEZE_NOTICE_DURATION);
+        if (gameContext.networkManager.GetAssignedPlayerType() == 1)
+        {
+            SendHostWorldSync(gameContext);
+        }
+
+        gameContext.networkManager.SendEndTurn();
+
+        if (IsMyTurn(gameContext))
+        {
+            m_gameLogic.ForceEndTurn();
+        }
+        ResetMoveState();
     }
+
+    if (gameContext.networkManager.IsConnected() && !IsMyTurn(gameContext))
+    {
+        m_movementController.Reset();
+    }
+
+    PlayerType currentTurn = m_gameLogic.GetCurrentTurn();
 
     if (m_gameLogic.GetRemainingSteps() <= 0)
     {
         m_skillManager.SetDoubleRollActive(false);
     }
 
-    if (m_gameLogic.GetCurrentTurn() == PlayerType::Player2)
+    if (currentTurn == PlayerType::Player2 && !gameContext.networkManager.IsConnected())
     {
         bool hasMoved = m_movementController.HasMovedThisTurn();
         m_skillManager.ProcessAISkillLogic(dt, this, m_gameLogic, hasMoved);
     }
 
-    if (m_gameLogic.GetCurrentTurn() == PlayerType::Player1 && !m_gameLogic.IsWaitingForRoll())
+    if (IsMyTurn(gameContext) && !m_gameLogic.IsWaitingForRoll())
     {
         auto mouseState = DirectX::Mouse::Get().GetState();
         static DirectX::Mouse::ButtonStateTracker mouseTracker;
@@ -81,27 +154,33 @@ void AdvanceGamePlayScene::OnModeUpdate(float dt, GameContext& gameContext)
             if (card.isHovered && !card.isUsed &&
                 mouseTracker.leftButton == DirectX::Mouse::ButtonStateTracker::PRESSED)
             {
-                if (card.type == SkillType::Revive && !m_gameLogic.HasDeadPiece(PlayerType::Player1))
-                    continue;
-                if (card.type == SkillType::ReRoll && (m_gameLogic.GetRemainingSteps() == 0 || hasMoved))
+                if (card.type == SkillType::Revive && !m_gameLogic.HasDeadPiece(m_myPlayerType))
                     continue;
 
                 m_particleManager.SpawnClickParticles(static_cast<float>(mouseState.x),
                                                       static_cast<float>(mouseState.y),
                                                       AdvanceSceneConstants::CLICK_PARTICLE_COUNT);
-                m_skillManager.ProcessPlayerSkillClick(card, this, m_gameLogic, hasMoved);
+
+                m_skillManager.ProcessPlayerSkillClick(card, this, m_gameLogic, hasMoved, m_myPlayerType);
+
+                if (gameContext.networkManager.IsConnected())
+                {
+                    gameContext.networkManager.SendSkillUse(static_cast<uint8_t>(card.type));
+                    if (gameContext.networkManager.GetAssignedPlayerType() == 1)
+                    {
+                        SendHostWorldSync(gameContext);
+                    }
+                }
             }
         }
     }
 }
 
-// ターゲット選択モード判定
 bool AdvanceGamePlayScene::IsModeSelectingTarget() const
 {
     return m_skillManager.IsReviveSelecting();
 }
 
-// 盤面格子クリック時の蘇生処理
 void AdvanceGamePlayScene::OnModeGridClicked(int gridX, int gridY)
 {
     if (m_skillManager.IsReviveSelecting())
@@ -109,16 +188,22 @@ void AdvanceGamePlayScene::OnModeGridClicked(int gridX, int gridY)
         if (gridX >= 0 && gridX < DiceBattleGame::BOARD_WIDTH &&
             (gridY == AdvanceSceneConstants::REVIVE_GRID_Y_MIN || gridY == AdvanceSceneConstants::REVIVE_GRID_Y_MAX))
         {
-            m_skillManager.ExecuteReviveSkill(gridX, gridY, this, m_gameLogic);
+            m_skillManager.ExecuteReviveSkill(gridX, gridY, this, m_gameLogic, m_myPlayerType);
         }
     }
 }
 
-// 2D UI描画処理
 void AdvanceGamePlayScene::OnModeRender2D(ID3D11DeviceContext* context, float screenWidth, float screenHeight,
                                           GameContext& gameContext)
 {
     auto& debugRenderer = gameContext.debugRenderer;
+
+    if (gameContext.networkManager.IsConnected() && !IsMyTurn(gameContext))
+    {
+        debugRenderer.DrawText({screenWidth * 0.5f - AdvanceSceneConstants::THINKING_TEXT_POS_X_OFFSET,
+                                AdvanceSceneConstants::THINKING_TEXT_POS_Y},
+                               Vector4(1.0f, 0.8f, 0.2f, 1.0f), L"【あいての思考・操作中...】");
+    }
 
     if (m_skillManager.IsReviveSelecting())
         debugRenderer.DrawText({AdvanceStyleConstants::DEBUG_TEXT_POS_X, AdvanceStyleConstants::DEBUG_TEXT_POS_Y},
@@ -179,7 +264,7 @@ void AdvanceGamePlayScene::OnModeRender2D(ID3D11DeviceContext* context, float sc
         float cy = handStartY;
 
         bool isReviveSkill = (card.type == SkillType::Revive);
-        bool hasDead = m_gameLogic.HasDeadPiece(PlayerType::Player1);
+        bool hasDead = m_gameLogic.HasDeadPiece(m_myPlayerType);
         bool isReRollSkill = (card.type == SkillType::ReRoll);
         bool canReRoll = (m_gameLogic.GetRemainingSteps() > 0 && !hasMoved);
 
@@ -220,7 +305,7 @@ void AdvanceGamePlayScene::OnModeRender2D(ID3D11DeviceContext* context, float sc
     {
         const auto& card = handCards[i];
         bool isReviveSkill = (card.type == SkillType::Revive);
-        bool hasDead = m_gameLogic.HasDeadPiece(PlayerType::Player1);
+        bool hasDead = m_gameLogic.HasDeadPiece(m_myPlayerType);
         bool isReRollSkill = (card.type == SkillType::ReRoll);
         bool canReRoll = (m_gameLogic.GetRemainingSteps() > 0 && !hasMoved);
 
@@ -240,7 +325,7 @@ void AdvanceGamePlayScene::OnModeRender2D(ID3D11DeviceContext* context, float sc
             float cx = static_cast<float>(card.rect.left), cy = static_cast<float>(card.rect.top);
 
             bool isReviveSkill = (card.type == SkillType::Revive);
-            bool hasDead = m_gameLogic.HasDeadPiece(PlayerType::Player1);
+            bool hasDead = m_gameLogic.HasDeadPiece(m_myPlayerType);
             bool isReRollSkill = (card.type == SkillType::ReRoll);
             bool canReRoll = (m_gameLogic.GetRemainingSteps() > 0 && !hasMoved);
 
@@ -262,7 +347,7 @@ void AdvanceGamePlayScene::OnModeRender2D(ID3D11DeviceContext* context, float sc
     {
         const auto& card = handCards[i];
         bool isReviveSkill = (card.type == SkillType::Revive);
-        bool hasDead = m_gameLogic.HasDeadPiece(PlayerType::Player1);
+        bool hasDead = m_gameLogic.HasDeadPiece(m_myPlayerType);
         bool isReRollSkill = (card.type == SkillType::ReRoll);
         bool canReRoll = (m_gameLogic.GetRemainingSteps() > 0 && !hasMoved);
 

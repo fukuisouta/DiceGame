@@ -8,17 +8,16 @@
 using namespace DirectX;
 using namespace DirectX::SimpleMath;
 
-// スキル処理パラメータ用定数定義
 namespace SkillStyleConstants
 {
-    constexpr float AI_SKILL_THINK_INTERVAL = 0.6f; // AIがスキル思考を行う更新インターバル（秒）
-    constexpr float NOTICE_DURATION_SKILL = 1.5f;   // スキル発動通知テロップの表示時間（秒）
-    constexpr int AI_REROLL_STEP_THRESHOLD = 2;     // AIが振り直しを使用する残り歩数の閾値
-    constexpr int DOUBLE_ROLL_MULTIPLIER = 2;       // 倍化スキル適用時の移動数倍率
-    constexpr int AI_REVIVE_SEARCH_MAX_Y = 1;       // AIが蘇生コマを配置する自陣の最大Y座標
+    constexpr float AI_SKILL_THINK_INTERVAL = 0.6f;
+    constexpr float NOTICE_DURATION_SKILL = 1.5f;
+    constexpr int AI_REROLL_STEP_THRESHOLD = 2;
+    constexpr int DOUBLE_ROLL_MULTIPLIER = 2;
+    constexpr int AI_REVIVE_SEARCH_MAX_Y = 1;
 }
 
-// スキルカードテクスチャの読み込みと初期化
+// テクスチャ読み込みと初期手札の生成
 void SkillManager::Initialize(ID3D11Device* device)
 {
     CreateWICTextureFromFile(device, L"Resources/Textures/再振.png", nullptr,
@@ -27,15 +26,13 @@ void SkillManager::Initialize(ID3D11Device* device)
                              m_cardTextures[SkillType::Shield].ReleaseAndGetAddressOf());
     CreateWICTextureFromFile(device, L"Resources/Textures/蘇生.png", nullptr,
                              m_cardTextures[SkillType::Revive].ReleaseAndGetAddressOf());
-    CreateWICTextureFromFile(device, L"Resources/Textures/凍結.png", nullptr,
-                             m_cardTextures[SkillType::Freeze].ReleaseAndGetAddressOf());
     CreateWICTextureFromFile(device, L"Resources/Textures/倍化.png", nullptr,
                              m_cardTextures[SkillType::DoubleRoll].ReleaseAndGetAddressOf());
 
     InitializeHandCards();
 }
 
-// カードデッキのシャッフルと手札配布
+// カードデッキのシャッフルと手札へのランダム割り当て（全4種から手札作成）
 void SkillManager::InitializeHandCards()
 {
     std::vector<SkillCard> masterList = {{SkillType::ReRoll,
@@ -62,14 +59,6 @@ void SkillManager::InitializeHandCards()
                                           false,
                                           Vector4(1.0f, 1.0f, 1.0f, 1.0f),
                                           m_cardTextures[SkillType::Revive]},
-                                         {SkillType::Freeze,
-                                          L"フリース",
-                                          L"次の相手の順番を1回スキップして連続で行動できる",
-                                          {0, 0, 0, 0},
-                                          false,
-                                          false,
-                                          Vector4(1.0f, 1.0f, 1.0f, 1.0f),
-                                          m_cardTextures[SkillType::Freeze]},
                                          {SkillType::DoubleRoll,
                                           L"倍化",
                                           L"このターンの移動できるマス数が2倍になる",
@@ -81,21 +70,18 @@ void SkillManager::InitializeHandCards()
 
     static std::mt19937 rng(std::random_device{}());
 
-    // プレイヤー（1P）へシャッフル配布
     std::shuffle(masterList.begin(), masterList.end(), rng);
     for (size_t i = 0; i < SkillManagerConstants::HAND_CARD_COUNT; ++i)
     {
         m_handCards[i] = masterList[i];
     }
 
-    // CPU（2P）へシャッフル配布
     std::shuffle(masterList.begin(), masterList.end(), rng);
     for (size_t i = 0; i < SkillManagerConstants::HAND_CARD_COUNT; ++i)
     {
         m_aiHandCards[i] = masterList[i];
     }
 
-    m_isFreezeNextTurn = false;
     m_isReviveSelecting = false;
     m_isDoubleRollActive = false;
     m_aiSkillTimer = 0.0f;
@@ -103,7 +89,7 @@ void SkillManager::InitializeHandCards()
 
 // プレイヤーのスキルカード発動処理
 void SkillManager::ProcessPlayerSkillClick(SkillCard& card, GamePlaySceneBase* scene, DiceBattleGame& gameLogic,
-                                           bool hasMovedThisTurn)
+                                           bool hasMovedThisTurn, PlayerType myPlayerType)
 {
     (void)hasMovedThisTurn;
     switch (card.type)
@@ -112,8 +98,10 @@ void SkillManager::ProcessPlayerSkillClick(SkillCard& card, GamePlaySceneBase* s
             card.isUsed = true;
             m_isDoubleRollActive = false;
             scene->ResetMoveState();
-            gameLogic.SetRemainingSteps(0);
+
+            gameLogic.ResetDiceRollState();
             gameLogic.StartTurn();
+
             scene->AddLog(L"スキル「再振」を使用！ダイスを振り直します");
             break;
 
@@ -128,15 +116,9 @@ void SkillManager::ProcessPlayerSkillClick(SkillCard& card, GamePlaySceneBase* s
             }
             break;
 
-        case SkillType::Freeze:
-            card.isUsed = true;
-            m_isFreezeNextTurn = true;
-            scene->AddLog(L"スキル「凍結」を使用！相手の次ターンをスキップします");
-            break;
-
         case SkillType::Shield:
             card.isUsed = true;
-            gameLogic.SetPlayerShield(PlayerType::Player1, true);
+            gameLogic.SetPlayerShield(myPlayerType, true);
             scene->AddLog(L"スキル「守護」を使用！このターン駒を守護します");
             break;
 
@@ -147,10 +129,57 @@ void SkillManager::ProcessPlayerSkillClick(SkillCard& card, GamePlaySceneBase* s
     }
 }
 
-// 蘇生スキルの実行
-void SkillManager::ExecuteReviveSkill(int targetX, int targetY, GamePlaySceneBase* scene, DiceBattleGame& gameLogic)
+// 通信相手からのスキル発動の適用処理
+void SkillManager::ProcessRemoteSkillClick(SkillType skillType, GamePlaySceneBase* scene, DiceBattleGame& gameLogic,
+                                           bool hasMovedThisTurn, PlayerType enemyPlayerType, int targetX, int targetY)
 {
-    if (gameLogic.RevivePieceAt(PlayerType::Player1, targetX, targetY))
+    (void)hasMovedThisTurn;
+    switch (skillType)
+    {
+        case SkillType::ReRoll:
+            m_isDoubleRollActive = false;
+            scene->ResetMoveState();
+
+            gameLogic.ResetDiceRollState();
+            gameLogic.StartTurn();
+
+            scene->TriggerTurnNotice(L"あいてがスキル「再振」を使用！", SkillStyleConstants::NOTICE_DURATION_SKILL);
+            scene->AddLog(L"あいてがスキル「再振」を使用しました");
+            break;
+
+        case SkillType::DoubleRoll:
+            if (gameLogic.GetRemainingSteps() > 0)
+            {
+                m_isDoubleRollActive = true;
+                gameLogic.SetRemainingSteps(gameLogic.GetRemainingSteps() *
+                                            SkillStyleConstants::DOUBLE_ROLL_MULTIPLIER);
+                scene->TriggerTurnNotice(L"あいてがスキル「倍化」を使用！", SkillStyleConstants::NOTICE_DURATION_SKILL);
+                scene->AddLog(L"あいてがスキル「倍化」を使用しました");
+            }
+            break;
+
+        case SkillType::Shield:
+            gameLogic.SetPlayerShield(enemyPlayerType, true);
+            scene->TriggerTurnNotice(L"あいてがスキル「守護」を使用！", SkillStyleConstants::NOTICE_DURATION_SKILL);
+            scene->AddLog(L"あいてがスキル「守護」を使用しました");
+            break;
+
+        case SkillType::Revive:
+            if (targetX >= 0 && targetY >= 0)
+            {
+                gameLogic.RevivePieceAt(enemyPlayerType, targetX, targetY);
+                scene->TriggerTurnNotice(L"あいてがスキル「蘇生」を使用！", SkillStyleConstants::NOTICE_DURATION_SKILL);
+                scene->AddLog(L"あいてが駒を復帰させました");
+            }
+            break;
+    }
+}
+
+// 蘇生スキルの実行処理
+void SkillManager::ExecuteReviveSkill(int targetX, int targetY, GamePlaySceneBase* scene, DiceBattleGame& gameLogic,
+                                      PlayerType myPlayerType)
+{
+    if (gameLogic.RevivePieceAt(myPlayerType, targetX, targetY))
     {
         for (auto& card : m_handCards)
         {
@@ -188,7 +217,7 @@ void SkillManager::ProcessAISkillLogic(float dt, GamePlaySceneBase* scene, DiceB
             {
                 if (gameLogic.GetRemainingSteps() <= SkillStyleConstants::AI_REROLL_STEP_THRESHOLD && !hasMovedThisTurn)
                 {
-                    gameLogic.SetRemainingSteps(0);
+                    gameLogic.ResetDiceRollState();
                     gameLogic.StartTurn();
                     used = true;
                     scene->TriggerTurnNotice(L"CPUがスキル「再振」を使用！",
@@ -228,15 +257,6 @@ void SkillManager::ProcessAISkillLogic(float dt, GamePlaySceneBase* scene, DiceB
                             break;
                     }
                 }
-                break;
-            }
-
-            case SkillType::Freeze:
-            {
-                m_isFreezeNextTurn = true;
-                used = true;
-                scene->TriggerTurnNotice(L"CPUがスキル「凍結」を使用！", SkillStyleConstants::NOTICE_DURATION_SKILL);
-                scene->AddLog(L"CPUがスキル「凍結」を発動しました");
                 break;
             }
 

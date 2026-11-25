@@ -14,13 +14,13 @@ namespace DiceSnapConstants
     constexpr float SNAP_DOT_THRESHOLD = -100.0f;
 }
 
-// 歩数（1〜3）に応じた標準ダイス回転姿勢の取得
+// 歩数（1〜3）に応じた標準ダイス回転姿勢の取得（StepDice.h の面定義と完全一致）
 static Quaternion GetStepDiceQuaternion(int stepValue)
 {
     switch (stepValue)
     {
         case 1:
-            return Quaternion::CreateFromAxisAngle(Vector3::UnitZ, -XM_PIDIV2);
+            return Quaternion::CreateFromAxisAngle(Vector3::UnitZ, XM_PIDIV2);
         case 2:
             return Quaternion::CreateFromAxisAngle(Vector3::UnitX, -XM_PIDIV2);
         case 3:
@@ -155,11 +155,11 @@ void DiceBattleGame::Initialize(ID3D11Device* device, ID3D11DeviceContext* conte
     AddPiece(PlayerType::Player2, PieceType::Pawn, 6, 0);
     AddPiece(PlayerType::Player2, PieceType::Pawn, 8, 0);
 
-    AddPiece(PlayerType::Player1, PieceType::Pawn, 0, 7);
-    AddPiece(PlayerType::Player1, PieceType::Pawn, 2, 7);
-    AddPiece(PlayerType::Player1, PieceType::King, 4, 7);
-    AddPiece(PlayerType::Player1, PieceType::Pawn, 6, 7);
-    AddPiece(PlayerType::Player1, PieceType::Pawn, 8, 7);
+    AddPiece(PlayerType::Player1, PieceType::Pawn, 0, 8);
+    AddPiece(PlayerType::Player1, PieceType::Pawn, 2, 8);
+    AddPiece(PlayerType::Player1, PieceType::King, 4, 8);
+    AddPiece(PlayerType::Player1, PieceType::Pawn, 6, 8);
+    AddPiece(PlayerType::Player1, PieceType::Pawn, 8, 8);
 }
 
 // 同期パケット構築
@@ -194,7 +194,8 @@ void DiceBattleGame::BuildWorldSyncPacket(MsgWorldSync& outPacket) const
 // 同期パケット適用
 void DiceBattleGame::ApplyWorldSyncFromHost(const MsgWorldSync& syncData)
 {
-    if (!m_isWaitingForRoll && m_remainingSteps == 0)
+    // 1P（相手）のターン中のみ、ホストの歩数ダイス位置・姿勢を反映する（2P自身のターン中は自分のダイス結果を保護）
+    if (!m_isWaitingForRoll && m_currentTurn == PlayerType::Player1)
     {
         Vector3 sPos(syncData.stepDiceTransform.posX, syncData.stepDiceTransform.posY, syncData.stepDiceTransform.posZ);
         Quaternion sRot(syncData.stepDiceTransform.rotX, syncData.stepDiceTransform.rotY,
@@ -218,7 +219,10 @@ void DiceBattleGame::ApplyWorldSyncFromHost(const MsgWorldSync& syncData)
             Quaternion rot(src.transform.rotX, src.transform.rotY, src.transform.rotZ, src.transform.rotW);
             p.diceInstance->SetPosition(pos);
             p.diceInstance->SetRotation(rot);
+            p.startRot = rot;
             p.targetRot = rot;
+            p.startPos = pos;
+            p.targetPos = pos;
         }
     }
 }
@@ -569,19 +573,15 @@ void DiceBattleGame::ResolveBattle(BoardPiece& attacker, BoardPiece& defender, i
     int atkFace = attacker.diceInstance ? GetFaceFromRotation(attacker.targetRot) : 1;
     int defFace = defender.diceInstance ? GetFaceFromRotation(defender.targetRot) : 1;
 
-    if (atkFace > defFace)
+    if (atkFace >= defFace)
     {
         RemovePieceAt(targetX, targetY);
         attacker.gridX = targetX;
         attacker.gridY = targetY;
     }
-    else if (atkFace < defFace)
-    {
-        RemovePieceAt(attackerX, attackerY);
-    }
     else
     {
-        RemovePieceAt(targetX, targetY);
+        RemovePieceAt(attackerX, attackerY);
     }
 }
 

@@ -25,9 +25,9 @@ public:
 
     // 毎フレームのターン状態監視・テロップタイマー処理・CPU思考処理を統合更新する関数
     // 引数 dt: デルタタイム, gameLogic: ゲームロジック参照, ai: AI思考ロジック参照, logManager: ログマネージャー参照,
-    // isNetworkConnected: ネットワーク接続中フラグ
+    // isNetworkConnected: ネットワーク接続中フラグ, myPlayerType: 自身のプレイヤー種別
     void Update(float dt, DiceBattleGame& gameLogic, DiceBattleAI& ai, GameLogManager& logManager,
-                bool isNetworkConnected);
+                bool isNetworkConnected, PlayerType myPlayerType = PlayerType::Player1);
 
     // 手動でターン切り替え通知（テロップ）を発生させる関数
     // 引数 text: 通知文字列, duration: 表示時間（秒）, logManager: ログマネージャーポインタ

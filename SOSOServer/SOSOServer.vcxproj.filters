@@ -1,0 +1,25 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClInclude Include="NetworkUtils.h" />
+    <ClInclude Include="SOSOServerEngine.h" />
+    <ClInclude Include="GameConfig.h" />
+    <ClInclude Include="ServerNetworkManager.h" />
+    <ClInclude Include="IPacketHandler.h" />
+    <ClInclude Include="PacketDispatcher.h" />
+    <ClInclude Include="PacketStream.h" />
+    <ClInclude Include="ServerGameLogic.h" />
+    <ClInclude Include="GameRoom.h" />
+    <ClInclude Include="RoomManager.h" />
+    <ClInclude Include="PacketType.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="NetworkUtils.cpp" />
+    <ClCompile Include="SOSOServerEngine.cpp" />
+    <ClCompile Include="ServerMain.cpp" />
+    <ClCompile Include="ServerNetworkManager.cpp" />
+    <ClCompile Include="ServerGameLogic.cpp" />
+    <ClCompile Include="GameRoom.cpp" />
+    <ClCompile Include="RoomManager.cpp" />
+  </ItemGroup>
+</Project>

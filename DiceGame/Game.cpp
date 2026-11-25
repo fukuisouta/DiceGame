@@ -14,6 +14,7 @@
 #include "AdvanceGamePlayScene.h"
 #include "OriginalGamePlayScene.h"
 #include "Scene/Lobby/LobbyScene.h"
+#include "Scene/Lobby/MultiSearchScene/MultiSearchScene.h"
 
 extern void ExitGame() noexcept;
 
@@ -59,6 +60,8 @@ void Game::Initialize(HWND window, int width, int height)
     m_sceneManager.RegisterScene<OriginalGamePlayScene>(SceneId::OriginalGamePlayScene);
     m_sceneManager.RegisterScene<AdvanceGamePlayScene>(SceneId::AdvanceGamePlayScene);
     m_sceneManager.RegisterScene<LobbyScene>(SceneId::LobbyScene);
+    m_sceneManager.RegisterScene<MultiSearchScene>(SceneId::MultiSearchScene);
+
 
     m_gameContext.emplace(m_timer, *m_deviceResources, m_keyboardTracker, m_mouseButtonTracker, *m_states,
                           *m_debugRenderer, m_networkManager);

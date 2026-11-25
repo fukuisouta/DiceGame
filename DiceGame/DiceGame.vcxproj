@@ -251,6 +251,7 @@
     <ClInclude Include="Scene\GamePlayScene\System\TurnManager.h" />
     <ClInclude Include="Scene\Lobby\LobbyScene.h" />
     <ClInclude Include="Scene\ModelTestScene\ModelTestScene.h" />
+    <ClInclude Include="Scene\Lobby\MultiSearchScene\MultiSearchScene.h" />
     <ClInclude Include="Scene\SceneId.h" />
     <ClInclude Include="Scene\SelectScene\SelectScene.h" />
     <ClInclude Include="Scene\TitleScene\TitleScene.h" />
@@ -351,6 +352,7 @@
     <ClCompile Include="Scene\GamePlayScene\System\TurnManager.cpp" />
     <ClCompile Include="Scene\Lobby\LobbyScene.cpp" />
     <ClCompile Include="Scene\ModelTestScene\ModelTestScene.cpp" />
+    <ClCompile Include="Scene\Lobby\MultiSearchScene\MultiSearchScene.cpp" />
     <ClCompile Include="Scene\SelectScene\SelectScene.cpp" />
     <ClCompile Include="Scene\TitleScene\TitleScene.cpp" />
     <ClCompile Include="SkyBox\Skybox.cpp" />

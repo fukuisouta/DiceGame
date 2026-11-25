@@ -90,7 +90,7 @@ private:
     {
         std::vector<SimPiece> pieces; // 配置コマ配列
         bool isGameOver = false;      // 対局終了フラグ
-        bool isDraw = false;          // 引き分けフラグ[cite: 40]
+        bool isDraw = false;          // 引き分けフラグ
         PlayerType winner;            // 勝者プレイヤー
 
         bool p1Shielded = false; // 1P守護状態

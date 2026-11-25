@@ -4,4 +4,5 @@
     <Platform Name="x86" />
   </Configurations>
   <Project Path="DiceGame/DiceGame.vcxproj" Id="e1243215-95a8-4f22-a58e-ff701ff23f78" />
+  <Project Path="SOSOServer/SOSOServer.vcxproj" Id="858fb007-07a8-4c49-8859-fe8537bd2b8c" />
 </Solution>

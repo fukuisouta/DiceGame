@@ -45,10 +45,12 @@ bool PieceMovementController::ExecuteMove(int fromX, int fromY, int toX, int toY
 
     int atkFace = gameLogic.GetPieceTopFace(attackerPiece);
     int defFace = gameLogic.GetPieceTopFace(targetPiece);
+    bool atkIsKing = (attackerPiece && attackerPiece->type == PieceType::King);
+    bool defIsKing = (targetPiece && targetPiece->type == PieceType::King);
 
-    bool isEnemyDefeated = (targetPiece != nullptr && targetPiece->owner != currentTurn);
+    bool hadEnemyAtTarget = (targetPiece != nullptr && targetPiece->owner != currentTurn);
 
-    if (targetPiece && targetPiece->owner != currentTurn)
+    if (hadEnemyAtTarget)
     {
         if (gameLogic.IsPlayerShielded(targetPiece->owner))
         {
@@ -72,26 +74,49 @@ bool PieceMovementController::ExecuteMove(int fromX, int fromY, int toX, int toY
 
     if (gameLogic.MovePiece(fromX, fromY, toX, toY))
     {
-        m_hasMovedThisTurn = true;
+        if (!isNetworkReceived)
+        {
+            m_hasMovedThisTurn = true;
+        }
         m_selectedX = toX;
         m_selectedY = toY;
         m_cursorX = toX;
         m_cursorY = toY;
 
-        bool isClientMode = (gameContext && gameContext->networkManager.IsConnected() &&
-                             gameContext->networkManager.GetMode() == NetworkManager::Mode::Client);
-        PlayerType myPlayerType = isClientMode ? PlayerType::Player2 : PlayerType::Player1;
+        bool isPlayer2 = (gameContext && gameContext->networkManager.IsConnected() &&
+                          gameContext->networkManager.GetAssignedPlayerType() == 2);
+        PlayerType myPlayerType = isPlayer2 ? PlayerType::Player2 : PlayerType::Player1;
 
         const wchar_t* actor = (currentTurn == myPlayerType) ? L"あなた" : L"あいて";
         const wchar_t* targetName = (currentTurn == myPlayerType) ? L"あいて" : L"あなた";
 
-        if (isEnemyDefeated)
+        // 移動後のコマを取得（転がって出目が変わる場合に対応。返り討ち時はnullptrになる）
+        const auto* movedPieceAfter = gameLogic.GetPieceAt(toX, toY);
+        int afterFace = movedPieceAfter ? gameLogic.GetPieceTopFace(movedPieceAfter) : atkFace;
+
+        std::wstring atkLabel = atkIsKing ? L"王" : (L"コマ[" + std::to_wstring(afterFace) + L"]");
+        std::wstring defLabel = defIsKing ? L"王" : (L"コマ[" + std::to_wstring(defFace) + L"]");
+        int remainingSteps = gameLogic.GetRemainingSteps();
+
+        if (hadEnemyAtTarget)
         {
-            logManager.AddLogFormat(L"%s[目:%d] が %s[目:%d] を撃破！", actor, atkFace, targetName, defFace);
+            if (movedPieceAfter != nullptr && movedPieceAfter->owner == currentTurn)
+            {
+                // 攻撃側が勝利して撃破
+                logManager.AddLogFormat(L"%sの%sが (%d,%d)→(%d,%d) で%sの%sを撃破！", actor, atkLabel.c_str(), fromX,
+                                        fromY, toX, toY, targetName, defLabel.c_str());
+            }
+            else
+            {
+                // 攻撃側が返り討ち（または相打ち）に遭った場合
+                logManager.AddLogFormat(L"%sの%sが (%d,%d)→(%d,%d) で%sの%sに返り討ちに遭った！", actor,
+                                        atkLabel.c_str(), fromX, fromY, toX, toY, targetName, defLabel.c_str());
+            }
         }
         else
         {
-            logManager.AddLogFormat(L"%sがコマ[%d] を (%d, %d) へ移動", actor, atkFace, toX, toY);
+            logManager.AddLogFormat(L"%sが%sを (%d,%d) → (%d,%d) へ移動（残り%d歩）", actor, atkLabel.c_str(), fromX,
+                                    fromY, toX, toY, remainingSteps);
         }
 
         if (!isNetworkReceived && gameContext && gameContext->networkManager.IsConnected())
@@ -114,6 +139,11 @@ void PieceMovementController::Update(const Mouse::State& mouseState, const Mouse
                                      GameContext* gameContext)
 {
     (void)mouseState;
+    (void)kbState;
+
+    // 自分の手番でない、またはコマ移動アニメ中・ダイス回転中は連打入力を完全に無視
+    if (gameLogic.GetCurrentTurn() != myPlayerType)
+        return;
 
     bool canControlPiece =
         !gameLogic.IsWaitingForRoll() && (gameLogic.GetRemainingSteps() > 0) && !gameLogic.IsAnyPieceMoving();
@@ -153,15 +183,15 @@ void PieceMovementController::Update(const Mouse::State& mouseState, const Mouse
             moveDx = isClient ? MovementStyleConstants::DIRECTION_FORWARD : MovementStyleConstants::DIRECTION_BACKWARD;
     }
 
-    if (!isCtrlPressed)
+    if (!isCtrlPressed && moveDx == 0 && moveDy == 0)
     {
         if (kbTracker.IsKeyPressed(Keyboard::Keys::Up) || kbTracker.IsKeyPressed(Keyboard::Keys::W))
             moveDy = isClient ? MovementStyleConstants::DIRECTION_FORWARD : MovementStyleConstants::DIRECTION_BACKWARD;
-        if (kbTracker.IsKeyPressed(Keyboard::Keys::Down) || kbTracker.IsKeyPressed(Keyboard::Keys::S))
+        else if (kbTracker.IsKeyPressed(Keyboard::Keys::Down) || kbTracker.IsKeyPressed(Keyboard::Keys::S))
             moveDy = isClient ? MovementStyleConstants::DIRECTION_BACKWARD : MovementStyleConstants::DIRECTION_FORWARD;
-        if (kbTracker.IsKeyPressed(Keyboard::Keys::Left) || kbTracker.IsKeyPressed(Keyboard::Keys::A))
+        else if (kbTracker.IsKeyPressed(Keyboard::Keys::Left) || kbTracker.IsKeyPressed(Keyboard::Keys::A))
             moveDx = isClient ? MovementStyleConstants::DIRECTION_BACKWARD : MovementStyleConstants::DIRECTION_FORWARD;
-        if (kbTracker.IsKeyPressed(Keyboard::Keys::Right) || kbTracker.IsKeyPressed(Keyboard::Keys::D))
+        else if (kbTracker.IsKeyPressed(Keyboard::Keys::Right) || kbTracker.IsKeyPressed(Keyboard::Keys::D))
             moveDx = isClient ? MovementStyleConstants::DIRECTION_FORWARD : MovementStyleConstants::DIRECTION_BACKWARD;
     }
 

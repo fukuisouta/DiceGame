@@ -17,12 +17,14 @@ using namespace DirectX;
 namespace
 {
     std::unique_ptr<Game> g_game;
+    RECT g_savedWindowRect = {100, 100, 1380, 820}; // ウィンドウモード復帰用の元の位置・サイズ保存領域
 }
 
 LPCWSTR g_szAppName = L"DiceGame";
 
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 void ExitGame() noexcept;
+void ToggleFullscreen(HWND hWnd, Game* game, bool& isFullscreen);
 
 // Indicates to hybrid graphics systems to prefer the discrete part by default
 extern "C"
@@ -33,6 +35,62 @@ extern "C"
 
 // ウインドウスタイル
 #define WS_MYSTYLE (WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX)
+
+// ボーダレスフルスクリーン ⇔ ウィンドウモード切り替え処理
+void ToggleFullscreen(HWND hWnd, Game* game, bool& isFullscreen)
+{
+    if (isFullscreen)
+    {
+        // ウィンドウモードへ戻す
+        SetWindowLongPtr(hWnd, GWL_STYLE, WS_MYSTYLE);
+        SetWindowLongPtr(hWnd, GWL_EXSTYLE, 0);
+
+        int width = 1280;
+        int height = 720;
+        if (game)
+            game->GetDefaultSize(width, height);
+
+        RECT rc = {0, 0, width, height};
+        AdjustWindowRect(&rc, WS_MYSTYLE, FALSE);
+
+        int winW = rc.right - rc.left;
+        int winH = rc.bottom - rc.top;
+
+        ShowWindow(hWnd, SW_SHOWNORMAL);
+        SetWindowPos(hWnd, HWND_NOTOPMOST, g_savedWindowRect.left, g_savedWindowRect.top, winW, winH,
+                     SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+    }
+    else
+    {
+        // 現在のウィンドウ位置を保存してからボーダレスフルスクリーンへ移行
+        GetWindowRect(hWnd, &g_savedWindowRect);
+
+        SetWindowLongPtr(hWnd, GWL_STYLE, WS_POPUP);
+        SetWindowLongPtr(hWnd, GWL_EXSTYLE, 0);
+
+        // ウィンドウが現在表示されているモニターの解像度を取得（マルチモニター対応）
+        HMONITOR hMonitor = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi = {sizeof(mi)};
+        GetMonitorInfo(hMonitor, &mi);
+
+        int monX = mi.rcMonitor.left;
+        int monY = mi.rcMonitor.top;
+        int monW = mi.rcMonitor.right - mi.rcMonitor.left;
+        int monH = mi.rcMonitor.bottom - mi.rcMonitor.top;
+
+        SetWindowPos(hWnd, HWND_TOP, monX, monY, monW, monH, SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+    }
+
+    isFullscreen = !isFullscreen;
+
+    // クライアント領域サイズ変更を即座に DirectX（Game）へ反映
+    if (game)
+    {
+        RECT clientRc{};
+        GetClientRect(hWnd, &clientRc);
+        game->OnWindowSizeChanged(clientRc.right - clientRc.left, clientRc.bottom - clientRc.top);
+    }
+}
 
 // Entry point
 int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPWSTR lpCmdLine,
@@ -58,7 +116,6 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 
     // Register class and create window
     {
-        // Register class
         WNDCLASSEXW wcex = {};
         wcex.cbSize = sizeof(WNDCLASSEXW);
         wcex.style = CS_HREDRAW | CS_VREDRAW;
@@ -77,7 +134,6 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
         g_game->GetDefaultSize(w, h);
 
         RECT rc = {0, 0, static_cast<LONG>(w), static_cast<LONG>(h)};
-
         AdjustWindowRect(&rc, WS_MYSTYLE, FALSE);
 
         HWND hwnd =
@@ -86,6 +142,8 @@ int WINAPI wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, 
 
         if (!hwnd)
             return 1;
+
+        GetWindowRect(hwnd, &g_savedWindowRect);
 
         // ドラッグ＆ドロップの許可を設定
         DragAcceptFiles(hwnd, TRUE);
@@ -186,6 +244,30 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             }
             break;
 
+        case WM_SIZE:
+            if (wParam == SIZE_MINIMIZED)
+            {
+                if (!s_minimized)
+                {
+                    s_minimized = true;
+                    if (!s_in_suspend && game)
+                        game->OnSuspending();
+                    s_in_suspend = true;
+                }
+            }
+            else if (s_minimized)
+            {
+                s_minimized = false;
+                if (s_in_suspend && game)
+                    game->OnResuming();
+                s_in_suspend = false;
+            }
+            else if (!s_in_sizemove && game)
+            {
+                game->OnWindowSizeChanged(LOWORD(lParam), HIWORD(lParam));
+            }
+            break;
+
         case WM_ENTERSIZEMOVE:
             s_in_sizemove = true;
             break;
@@ -256,34 +338,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         case WM_SYSKEYDOWN:
             if (wParam == VK_RETURN && (lParam & 0x60000000) == 0x20000000)
             {
-                if (s_fullscreen)
-                {
-                    SetWindowLongPtr(hWnd, GWL_STYLE, WS_MYSTYLE);
-                    SetWindowLongPtr(hWnd, GWL_EXSTYLE, 0);
-
-                    int width = 800;
-                    int height = 600;
-                    if (game)
-                        game->GetDefaultSize(width, height);
-
-                    ShowWindow(hWnd, SW_SHOWNORMAL);
-
-                    RECT rc{};
-                    AdjustWindowRect(&rc, WS_MYSTYLE, FALSE);
-                    SetWindowPos(hWnd, HWND_TOP, 0, 0, width + rc.right - rc.left, height + rc.bottom - rc.top,
-                                 SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED);
-                }
-                else
-                {
-                    SetWindowLongPtr(hWnd, GWL_STYLE, WS_POPUP);
-                    SetWindowLongPtr(hWnd, GWL_EXSTYLE, WS_EX_TOPMOST);
-
-                    SetWindowPos(hWnd, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-
-                    ShowWindow(hWnd, SW_SHOWMAXIMIZED);
-                }
-
-                s_fullscreen = !s_fullscreen;
+                ToggleFullscreen(hWnd, game, s_fullscreen);
             }
             Keyboard::ProcessMessage(message, wParam, lParam);
             break;
@@ -297,6 +352,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
             break;
 
         case WM_KEYDOWN:
+            // F11キーでもフルスクリーン切り替え可能にする
+            if (wParam == VK_F11 && (lParam & 0x40000000) == 0)
+            {
+                ToggleFullscreen(hWnd, game, s_fullscreen);
+            }
+            Keyboard::ProcessMessage(message, wParam, lParam);
+            break;
+
         case WM_KEYUP:
         case WM_SYSKEYUP:
             Keyboard::ProcessMessage(message, wParam, lParam);

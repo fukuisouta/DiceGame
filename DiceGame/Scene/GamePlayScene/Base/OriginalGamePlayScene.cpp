@@ -4,7 +4,6 @@
 using namespace DirectX;
 using namespace DirectX::SimpleMath;
 
-// 自分の手番判定
 bool OriginalGamePlayScene::IsMyTurn(GameContext& gameContext) const
 {
     if (!gameContext.networkManager.IsConnected())
@@ -13,11 +12,13 @@ bool OriginalGamePlayScene::IsMyTurn(GameContext& gameContext) const
     }
 
     PlayerType currentTurn = m_gameLogic.GetCurrentTurn();
-    if (gameContext.networkManager.GetMode() == NetworkManager::Mode::Host)
+    uint8_t assignedRole = gameContext.networkManager.GetAssignedPlayerType();
+
+    if (assignedRole == 1)
     {
         return (currentTurn == PlayerType::Player1);
     }
-    else if (gameContext.networkManager.GetMode() == NetworkManager::Mode::Client)
+    else if (assignedRole == 2)
     {
         return (currentTurn == PlayerType::Player2);
     }
@@ -25,81 +26,52 @@ bool OriginalGamePlayScene::IsMyTurn(GameContext& gameContext) const
     return false;
 }
 
-// モード進入時処理
 void OriginalGamePlayScene::OnModeEnter(GameContext& gameContext)
 {
     if (gameContext.networkManager.IsConnected())
     {
-        if (gameContext.networkManager.GetMode() == NetworkManager::Mode::Host)
+        uint8_t assignedRole = gameContext.networkManager.GetAssignedPlayerType();
+        if (assignedRole == 1)
         {
-            AddLog(L"【1P】ホストとして接続（全描画集約モード）");
+            AddLog(L"【1P(青) / HOST】として接続（ホスト中心同期モード）");
         }
-        else
+        else if (assignedRole == 2)
         {
-            AddLog(L"【2P】クライアントとして接続（受信用表示モード）");
+            AddLog(L"【2P(赤) / GUEST】として接続（ホスト中心同期モード）");
         }
     }
-
-    gameContext.networkManager.SetOnDiceResult(
-        [this](int steps)
-        {
-            m_gameLogic.StartTurnWithSteps(steps);
-            ResetMoveState();
-            AddLog(L"あいてがダイスを振り【%d】が出ました", steps);
-        });
-
-    gameContext.networkManager.SetOnMovePiece(
-        [this, &gameContext](int fX, int fY, int tX, int tY)
-        {
-            std::wstring noticeText;
-            float noticeTimer = 0.0f;
-
-            m_movementController.ExecuteMove(fX, fY, tX, tY, true, m_gameLogic, m_logManager, &gameContext, noticeText,
-                                             noticeTimer);
-
-            if (!noticeText.empty())
-            {
-                m_turnManager.TriggerNotice(noticeText, noticeTimer);
-            }
-        });
-
-    gameContext.networkManager.SetOnWorldSync([this](const MsgWorldSync& syncPkt)
-                                              { m_gameLogic.ApplyWorldSyncFromHost(syncPkt); });
 }
 
-// モード更新処理
 void OriginalGamePlayScene::OnModeUpdate(float dt, GameContext& gameContext)
 {
     (void)dt;
+
+    // 自分がコマを動かして残り歩数が0になり、移動アニメも完了したらターン終了を通知
+    if (gameContext.networkManager.IsConnected() && m_movementController.HasMovedThisTurn() &&
+        m_gameLogic.GetRemainingSteps() <= 0 && !m_gameLogic.IsAnyPieceMoving())
+    {
+        // ホスト(1P)なら自分の行動完了後の確定盤面も2Pへ配信
+        if (gameContext.networkManager.GetAssignedPlayerType() == 1)
+        {
+            SendHostWorldSync(gameContext);
+        }
+
+        gameContext.networkManager.SendEndTurn();
+
+        // 自分のローカル盤面がまだ自分のターンのままなら即座に相手ターンへ切り替える
+        if (IsMyTurn(gameContext))
+        {
+            m_gameLogic.ForceEndTurn();
+        }
+        ResetMoveState();
+    }
 
     if (gameContext.networkManager.IsConnected() && !IsMyTurn(gameContext))
     {
         m_movementController.Reset();
     }
-
-    if (gameContext.networkManager.IsConnected() && IsMyTurn(gameContext))
-    {
-        if (m_movementController.HasMovedThisTurn() && m_gameLogic.GetRemainingSteps() <= 0 &&
-            !m_gameLogic.IsAnyPieceMoving())
-        {
-            PacketHeader msg{};
-            msg.size = sizeof(PacketHeader);
-            msg.type = PacketType::CS_EndTurn;
-            gameContext.networkManager.SendPacket(&msg, sizeof(msg));
-
-            ResetMoveState();
-        }
-    }
-
-    if (gameContext.networkManager.IsConnected() && gameContext.networkManager.GetMode() == NetworkManager::Mode::Host)
-    {
-        MsgWorldSync syncPkt{};
-        m_gameLogic.BuildWorldSyncPacket(syncPkt);
-        gameContext.networkManager.SendPacket(&syncPkt, sizeof(syncPkt));
-    }
 }
 
-// 2D描画処理
 void OriginalGamePlayScene::OnModeRender2D(ID3D11DeviceContext* context, float screenWidth, float screenHeight,
                                            GameContext& gameContext)
 {

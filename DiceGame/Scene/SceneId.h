@@ -20,5 +20,6 @@ enum class SceneId : uint8_t
     //GamePlayScene
     OriginalGamePlayScene, 
     AdvanceGamePlayScene ,
-    LobbyScene
+    LobbyScene,
+    MultiSearchScene
 };
